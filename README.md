@@ -68,7 +68,7 @@ python cli.py [options]
 | `-s, --hash, --hashes` | One or more SHA-256 hashes to scan |
 | `-d, --directory, --dir` | Scan all files in a directory |
 | `-r, --recursive` | Recurse subdirectories (directory mode only) |
-| `-o, --output` | Report output path |
+| `-o, --output [OUTPUT]` | Write report to file (default filename `scan_report_YYYYMMDD_HHMMSS.<format>` when used without a value) |
 | `--format` | Report format: `json`, `csv`, `txt`, `md` (default `json`) |
 | `--workers` | Concurrent scan workers (default `4`, minimum `1`) |
 | `--api-key` | API key override for this run |
@@ -115,6 +115,12 @@ Generate report:
 python cli.py -f sample.exe -o reports/scan.json --format json
 ```
 
+Generate report with auto filename:
+
+```bash
+python cli.py -f sample.exe -o --format md
+```
+
 Clear cache only:
 
 ```bash
@@ -126,8 +132,8 @@ python cli.py --clear-cache
 - **Set API Key** button stores/removes key in `.env` automatically.
 - **Add Item** menu:
   - Add File(s)
-  - Add SHA-256 Hash
-  - Add Multiple SHA-256 Hashes (one per line)
+  - Add SHA-256 hash
+  - Add multiple SHA-256 hashes (one per line)
 - Drag-and-drop supports files.
 - Duplicate items are skipped.
 - **Scan** processes queued items.
@@ -223,6 +229,43 @@ VirusProbe/
 |   `-- vt_cache.db
 |-- requirements-cli.txt
 |-- requirements-gui.txt
+|-- requirements-test.txt
+|-- tests/
+|   |-- test_cache.py
+|   |-- test_service.py
+|   |-- test_cli_parser.py
+|   |-- test_cli_behavior.py
+|   `-- test_reporting.py
 `-- README.md
 ```
+
+## Testing
+
+Install test dependencies:
+
+```bash
+pip install -r requirements-test.txt
+```
+
+Run all unit tests:
+
+```bash
+pytest -q
+```
+
+Run a specific test module:
+
+```bash
+pytest -q tests/test_service.py
+```
+
+Current unit test coverage focuses on:
+
+- `common/cache.py`: persistence, stale-row cleanup, init pruning, row-cap enforcement, and LRU eviction
+- `common/service.py`: hash validation, API error mapping, malformed-response handling, and directory/mixed-item scan behavior
+- CLI: parser flags plus runtime argument-validation and admin-action paths
+- `common/reporting.py`: JSON/CSV/TXT/MD report writing and parent-directory creation
+
+
+
 
