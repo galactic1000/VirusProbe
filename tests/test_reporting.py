@@ -4,6 +4,8 @@ import csv
 import json
 from pathlib import Path
 
+import pytest
+
 from common.reporting import write_report
 
 
@@ -73,3 +75,42 @@ def test_write_report_creates_parent_dirs(tmp_path) -> None:
     write_report(SAMPLE_RESULTS, str(out), "json")
     assert out.exists()
     assert Path(out).parent.exists()
+
+
+_ERROR_RESULT = {
+    "item": "bad.exe",
+    "type": "file",
+    "file_hash": "",
+    "malicious": 0,
+    "suspicious": 0,
+    "harmless": 0,
+    "undetected": 0,
+    "threat_level": "Error",
+    "status": "error",
+    "message": "File not found",
+}
+
+
+@pytest.mark.parametrize("fmt", ["md", "txt"])
+def test_write_report_includes_errors_in_summary(tmp_path, fmt) -> None:
+    out = tmp_path / f"report.{fmt}"
+    write_report([_ERROR_RESULT], str(out), fmt)
+    assert "Errors: 1" in out.read_text(encoding="utf-8")
+
+
+def test_write_report_md_escapes_pipe_in_item(tmp_path) -> None:
+    result = {
+        "item": "path|with|pipes.exe",
+        "type": "file",
+        "file_hash": "c" * 64,
+        "malicious": 0,
+        "suspicious": 0,
+        "harmless": 10,
+        "undetected": 0,
+        "threat_level": "Clean",
+        "status": "ok",
+        "message": "",
+    }
+    out = tmp_path / "report.md"
+    write_report([result], str(out), "md")
+    assert r"path\|with\|pipes.exe" in out.read_text(encoding="utf-8")
