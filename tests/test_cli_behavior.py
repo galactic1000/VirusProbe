@@ -58,7 +58,7 @@ def test_main_errors_when_api_key_missing(monkeypatch) -> None:
 
 
 def test_save_api_key_action_only(monkeypatch) -> None:
-    calls = {"saved": None}
+    calls: dict[str, str | None] = {"saved": None}
 
     def fake_save(value: str) -> None:
         calls["saved"] = value
@@ -89,6 +89,38 @@ def test_filter_existing_files_returns_only_real_files(tmp_path) -> None:
 
     result = cli_app._filter_existing_files([str(good), str(missing), str(folder)])
     assert result == [str(good)]
+
+
+def test_main_exits_1_when_error_results(monkeypatch) -> None:
+    class ErrorService(FakeService):
+        def scan_hashes(self, *args, **kwargs):
+            return [{"threat_level": "Error", "status": "error", "message": "API failure"}]
+
+    monkeypatch.setattr(cli_app, "ScannerService", ErrorService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    monkeypatch.setattr(cli_app, "print_run_context", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
+    assert exc_info.value.code == 1
+
+
+def test_main_exits_0_when_malicious_results(monkeypatch) -> None:
+    class MaliciousService(FakeService):
+        def scan_hashes(self, *args, **kwargs):
+            return [{"threat_level": "Malicious", "status": "ok"}]
+
+    monkeypatch.setattr(cli_app, "ScannerService", MaliciousService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    monkeypatch.setattr(cli_app, "print_run_context", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])  # should not raise
 
 
 def test_output_toggle_auto_generates_report_name(monkeypatch) -> None:

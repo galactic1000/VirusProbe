@@ -1,13 +1,14 @@
-"""Core scan service shared by CLI and GUI."""
+﻿"""Core scan service shared by CLI and GUI."""
 
 from __future__ import annotations
 
 import hashlib
 import threading
+import time
+from collections import deque
 from collections.abc import Callable, Iterable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
-from itertools import chain
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +17,38 @@ import vt
 from .cache import ScanCache
 
 DEFAULT_SCAN_WORKERS = 4
+DEFAULT_REQUESTS_PER_MINUTE = 4
 _HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
+
+
+class _RateLimiter:
+    """Thread-safe sliding-window rate limiter.
+
+    Tracks the timestamps of recent acquisitions and blocks callers until
+    a slot becomes available within the rolling *period* window.
+    Set *max_calls=0* to disable limiting entirely.
+    """
+
+    def __init__(self, max_calls: int, period: float = 60.0) -> None:
+        self._max_calls = max_calls
+        self._period = period
+        self._timestamps: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def acquire(self) -> None:
+        """Block until a request slot is available within the window."""
+        if self._max_calls <= 0:
+            return
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                while self._timestamps and now - self._timestamps[0] >= self._period:
+                    self._timestamps.popleft()
+                if len(self._timestamps) < self._max_calls:
+                    self._timestamps.append(now)
+                    return
+                wait = self._timestamps[0] + self._period - now
+            time.sleep(max(0.0, wait))
 
 
 class ScannerService:
@@ -29,16 +61,19 @@ class ScannerService:
         cache_expiry_days: int = 7,
         cache_max_rows: int = 10000,
         memory_cache_max_entries: int = 512,
-        max_workers: int = DEFAULT_SCAN_WORKERS,
+        max_workers: int | None = None,
+        requests_per_minute: int = DEFAULT_REQUESTS_PER_MINUTE,
     ) -> None:
         self.api_key = api_key
-        self.max_workers = max(1, int(max_workers))
+        effective_workers = max_workers if max_workers is not None else (requests_per_minute if requests_per_minute > 0 else DEFAULT_SCAN_WORKERS)
+        self.max_workers = max(1, int(effective_workers))
         self._cache = ScanCache(
             cache_db=cache_db,
             cache_expiry_days=cache_expiry_days,
             cache_max_rows=cache_max_rows,
             memory_cache_max_entries=memory_cache_max_entries,
         )
+        self._rate_limiter = _RateLimiter(max_calls=max(0, int(requests_per_minute)))
         self._client_local = threading.local()
         self._clients: list[vt.Client] = []
         self._clients_lock = threading.Lock()
@@ -116,24 +151,36 @@ class ScannerService:
             "was_cached": False,
         }
 
-    def _scan_many(self, scan_func: Callable[[str], dict[str, Any]], items: Iterable[str]) -> list[dict[str, Any]]:
-        item_iter = iter(items)
-        try:
-            first = next(item_iter)
-        except StopIteration:
+    def _scan_many(
+        self,
+        scan_func: Callable[[str], dict[str, Any]],
+        items: Iterable[str],
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+    ) -> list[dict[str, Any]]:
+        item_list = list(items)
+        if not item_list:
             return []
-        try:
-            second = next(item_iter)
-        except StopIteration:
-            return [scan_func(first)]
+        if len(item_list) == 1:
+            result = scan_func(item_list[0])
+            if on_result is not None:
+                on_result(result)
+            return [result]
+        results: list[dict[str, Any] | None] = [None] * len(item_list)
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            return list(executor.map(scan_func, chain((first, second), item_iter)))
+            future_to_idx = {executor.submit(scan_func, item): i for i, item in enumerate(item_list)}
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                result = future.result()
+                results[idx] = result
+                if on_result is not None:
+                    on_result(result)
+        return [r for r in results if r is not None]
 
-    def scan_files(self, file_paths: Iterable[str]) -> list[dict[str, Any]]:
-        return self._scan_many(self.scan_file, file_paths)
+    def scan_files(self, file_paths: Iterable[str], on_result: Callable[[dict[str, Any]], None] | None = None) -> list[dict[str, Any]]:
+        return self._scan_many(self.scan_file, file_paths, on_result=on_result)
 
-    def scan_hashes(self, hashes: Iterable[str]) -> list[dict[str, Any]]:
-        return self._scan_many(self.scan_hash, hashes)
+    def scan_hashes(self, hashes: Iterable[str], on_result: Callable[[dict[str, Any]], None] | None = None) -> list[dict[str, Any]]:
+        return self._scan_many(self.scan_hash, hashes, on_result=on_result)
 
     def scan_file(self, file_path: str) -> dict[str, Any]:
         """Scans a file path by hash."""
@@ -189,19 +236,30 @@ class ScannerService:
             "was_cached": was_cached,
         }
 
-    def scan_directory(self, directory: str, recursive: bool = False) -> list[dict[str, Any]]:
+    def scan_directory(
+        self,
+        directory: str,
+        recursive: bool = False,
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+    ) -> list[dict[str, Any]]:
         """Scans files in a directory concurrently."""
         path = Path(directory)
         if not path.exists():
-            raise FileNotFoundError(f"Directory '{directory}' does not exist")
+            result = self._error_result(directory, "directory", f"Directory '{directory}' does not exist")
+            if on_result is not None:
+                on_result(result)
+            return [result]
         if not path.is_dir():
-            raise NotADirectoryError(f"'{directory}' is not a directory")
-        files = (str(f) for f in (path.rglob("*") if recursive else path.iterdir()) if f.is_file())
-        return self.scan_files(files)
+            result = self._error_result(directory, "directory", f"'{directory}' is not a directory")
+            if on_result is not None:
+                on_result(result)
+            return [result]
+        files = [str(f) for f in (path.rglob("*") if recursive else path.iterdir()) if f.is_file()]
+        return self.scan_files(files, on_result=on_result)
 
-    def scan_items(self, items: list[str]) -> list[dict[str, Any]]:
+    def scan_items(self, items: list[str], on_result: Callable[[dict[str, Any]], None] | None = None) -> list[dict[str, Any]]:
         """Scans a mixed list of file paths and hashes."""
-        return self._scan_many(lambda item: self.scan_hash(item) if self.is_sha256(item) else self.scan_file(item), items)
+        return self._scan_many(lambda item: self.scan_hash(item) if self.is_sha256(item) else self.scan_file(item), items, on_result=on_result)
 
     @staticmethod
     def is_sha256(value: str) -> bool:
@@ -234,8 +292,8 @@ class ScannerService:
         if cached is not None:
             return cached, True
 
+        self._rate_limiter.acquire()
         client = self._get_client()
         response_json = client.get(f"/files/{file_hash}").json()
         self._cache.save(file_hash, self._extract_stats(response_json))
         return response_json, False
-

@@ -126,8 +126,8 @@ def print_scan_summary(results: list[dict]) -> None:
     summary = build_summary(results)
     error_items = [r for r in results if r.get("threat_level") == "Error"]
     undetected_items = [r for r in results if r.get("threat_level") == "Undetected"]
-    suspicious_items = [r for r in results if 0 < r.get("malicious", 0) < 10]
-    malicious_items = [r for r in results if r.get("malicious", 0) >= 10]
+    suspicious_items = [r for r in results if r.get("threat_level") == "Suspicious"]
+    malicious_items = [r for r in results if r.get("threat_level") == "Malicious"]
 
     print("\n")
     print(_line(BANNER_BORDER_CHAR))
@@ -166,4 +166,3 @@ def print_scan_summary(results: list[dict]) -> None:
     print()
     print(_line(BANNER_BORDER_CHAR))
     print()
-

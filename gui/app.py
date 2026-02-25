@@ -17,7 +17,6 @@ from common import ScannerService, get_api_key, remove_api_key_from_env, save_ap
 from .dialogs import show_add_hashes_dialog, show_generate_report_dialog
 
 CACHE_DB = Path(__file__).resolve().parents[1] / "cache" / "vt_cache.db"
-SCAN_WORKERS = 4
 
 
 def _title_font() -> tuple[str, int, str]:
@@ -139,7 +138,7 @@ class VirusProbeGUI:
         if not messagebox.askyesno("Clear Cache", "Clear local SQLite cache now?", parent=self.root):
             return
         try:
-            service = self.scanner or ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB, max_workers=SCAN_WORKERS)
+            service = self.scanner or ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB)
             deleted = service.clear_cache()
             label = f"{deleted} entr{'y' if deleted == 1 else 'ies'}"
             self.progress_var.set(f"Cache cleared ({label})")
@@ -256,7 +255,7 @@ class VirusProbeGUI:
     def _scan_worker(self) -> None:
         scanner: ScannerService | None = None
         try:
-            scanner = ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB, max_workers=SCAN_WORKERS)
+            scanner = ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB)
             self.scanner = scanner
             scanner.init_cache()
 
@@ -371,4 +370,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
