@@ -6,6 +6,7 @@
 
 # Cache
 cache/
+.pytest*
 
 # Python bytecode
 __pycache__/
