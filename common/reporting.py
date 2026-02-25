@@ -10,11 +10,13 @@ from pathlib import Path
 
 def build_summary(results: list[dict]) -> dict[str, int]:
     """Builds aggregate counts for reporting."""
-    clean = suspicious = malicious = undetected = 0
+    clean = suspicious = malicious = undetected = errors = 0
     for r in results:
         tl = r.get("threat_level")
         m = r.get("malicious", 0)
-        if tl == "Undetected":
+        if tl == "Error":
+            errors += 1
+        elif tl == "Undetected":
             undetected += 1
         elif m >= 10:
             malicious += 1
@@ -28,6 +30,7 @@ def build_summary(results: list[dict]) -> dict[str, int]:
         "suspicious": suspicious,
         "malicious": malicious,
         "undetected": undetected,
+        "errors": errors,
     }
 
 

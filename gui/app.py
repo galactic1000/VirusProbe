@@ -7,72 +7,25 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
-from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Any
 
-from common import ScannerService, write_report
-
-TOOL_NAME = "VirusProbe"
-CACHE_DB = Path(__file__).resolve().parents[1] / "cache" / "vt_cache.db"
-DOTENV_PATH = Path(__file__).resolve().parents[1] / ".env"
-API_KEY_ENV_VARS = ("VT_API_KEY", "VIRUSTOTAL_API_KEY")
-INVALID_FILENAME_CHARS = set('<>:"/\\|?*')
-_HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
-WINDOWS_RESERVED_NAMES = {
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    "COM1",
-    "COM2",
-    "COM3",
-    "COM4",
-    "COM5",
-    "COM6",
-    "COM7",
-    "COM8",
-    "COM9",
-    "LPT1",
-    "LPT2",
-    "LPT3",
-    "LPT4",
-    "LPT5",
-    "LPT6",
-    "LPT7",
-    "LPT8",
-    "LPT9",
-}
-
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
+from common import ScannerService, get_api_key, remove_api_key_from_env, save_api_key_to_env
+from .dialogs import show_add_hashes_dialog, show_generate_report_dialog
 
-def _load_dotenv(dotenv_path: Path) -> None:
-    if not dotenv_path.exists():
-        return
-    for raw_line in dotenv_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
-            os.environ[key] = value
+CACHE_DB = Path(__file__).resolve().parents[1] / "cache" / "vt_cache.db"
+SCAN_WORKERS = 4
 
 
-def _get_api_key() -> str | None:
-    _load_dotenv(DOTENV_PATH)
-    for var_name in API_KEY_ENV_VARS:
-        value = os.environ.get(var_name, "").strip()
-        if value:
-            return value
-    return None
-
-
-def _is_sha256(value: str) -> bool:
-    return len(value) == 64 and all(c in _HEX_CHARS for c in value)
+def _title_font() -> tuple[str, int, str]:
+    if sys.platform.startswith("win"):
+        return ("Segoe UI", 16, "bold")
+    if sys.platform == "darwin":
+        return ("Helvetica Neue", 16, "bold")
+    return ("Noto Sans", 16, "bold")
 
 
 class VirusProbeGUI:
@@ -82,28 +35,29 @@ class VirusProbeGUI:
         self.root.geometry("980x620")
         self.root.minsize(860, 520)
 
-        self.api_key: str | None = _get_api_key()
+        self.api_key: str | None = get_api_key()
         self.scanner: ScannerService | None = None
         self.items: list[dict[str, Any]] = []
         self.item_keys: set[tuple[str, str]] = set()
         self.last_results: list[dict[str, Any]] = []
         self._pending_entries: list[tuple[str, str, str]] = []
         self.is_scanning = False
+        self._is_closing = False
         self.default_report_dir = str(Path.home())
 
         self._build_ui()
         self._update_api_key_status()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self) -> None:
         top = ttk.Frame(self.root, padding=10)
         top.pack(fill=tk.X)
 
-        title = ttk.Label(top, text="VirusProbe", font=("Segoe UI", 16, "bold"))
+        title = ttk.Label(top, text="VirusProbe", font=_title_font())
         title.pack(side=tk.LEFT)
 
         self.api_status_var = tk.StringVar(value="API Key: Not Set")
-        api_status = ttk.Label(top, textvariable=self.api_status_var)
-        api_status.pack(side=tk.LEFT, padx=20)
+        ttk.Label(top, textvariable=self.api_status_var).pack(side=tk.LEFT, padx=20)
 
         ttk.Button(top, text="Clear Cache", command=self._clear_cache_dialog).pack(side=tk.RIGHT, padx=(0, 8))
         ttk.Button(top, text="Set API Key", command=self._set_api_key_dialog).pack(side=tk.RIGHT)
@@ -126,8 +80,7 @@ class VirusProbeGUI:
         self.scan_btn = ttk.Button(controls, text="Scan", command=self._scan_items)
         self.scan_btn.pack(side=tk.RIGHT)
 
-        helper_text = "Drag files into the list or use Add Item."
-        ttk.Label(controls, text=helper_text).pack(side=tk.RIGHT, padx=12)
+        ttk.Label(controls, text="Drag files into the list or use Add Item.").pack(side=tk.RIGHT, padx=12)
 
         list_frame = ttk.Frame(self.root, padding=(10, 0, 10, 10))
         list_frame.pack(fill=tk.BOTH, expand=True)
@@ -158,6 +111,13 @@ class VirusProbeGUI:
         self.progress_var = tk.StringVar(value="Ready")
         ttk.Label(bottom, textvariable=self.progress_var).pack(side=tk.RIGHT)
 
+    def _set_controls_enabled(self, enabled: bool) -> None:
+        state = tk.NORMAL if enabled else tk.DISABLED
+        self.remove_btn.configure(state=state)
+        self.clear_btn.configure(state=state)
+        self.scan_btn.configure(state=state)
+        self.add_menu_btn.configure(state=state)
+
     def _set_api_key_dialog(self) -> None:
         value = simpledialog.askstring(
             "VirusTotal API Key",
@@ -168,31 +128,24 @@ class VirusProbeGUI:
         )
         if value is None:
             return
-        value = value.strip()
-        self.api_key = value or None
+        self.api_key = value.strip() or None
         if self.api_key:
-            self._save_api_key_to_env(self.api_key)
+            save_api_key_to_env(self.api_key)
         else:
-            self._remove_api_key_from_env()
+            remove_api_key_from_env()
         self._update_api_key_status()
 
     def _clear_cache_dialog(self) -> None:
-        confirmed = messagebox.askyesno(
-            "Clear Cache",
-            "Clear local SQLite cache now?",
-            parent=self.root,
-        )
-        if not confirmed:
+        if not messagebox.askyesno("Clear Cache", "Clear local SQLite cache now?", parent=self.root):
             return
         try:
-            service = self.scanner or ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB)
+            service = self.scanner or ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB, max_workers=SCAN_WORKERS)
             deleted = service.clear_cache()
-            self.progress_var.set(f"Cache cleared ({deleted} entr{'y' if deleted == 1 else 'ies'})")
-            messagebox.showinfo(
-                "Cache Cleared",
-                f"Cleared SQLite cache ({deleted} entr{'y' if deleted == 1 else 'ies'}).",
-                parent=self.root,
-            )
+            label = f"{deleted} entr{'y' if deleted == 1 else 'ies'}"
+            self.progress_var.set(f"Cache cleared ({label})")
+            messagebox.showinfo("Cache Cleared", f"Cleared SQLite cache ({label}).", parent=self.root)
+            if self.scanner is None:
+                service.close()
         except Exception as exc:
             messagebox.showerror("Cache Error", str(exc), parent=self.root)
 
@@ -204,8 +157,7 @@ class VirusProbeGUI:
             self.api_status_var.set("API Key: Not Set")
 
     def _add_files_dialog(self) -> None:
-        paths = filedialog.askopenfilenames(parent=self.root, title="Select files to scan")
-        for path in paths:
+        for path in filedialog.askopenfilenames(parent=self.root, title="Select files to scan"):
             self._add_item("file", str(path))
 
     def _add_hash_dialog(self) -> None:
@@ -213,89 +165,23 @@ class VirusProbeGUI:
         if raw is None:
             return
         value = raw.strip()
-        if not _is_sha256(value):
+        if not ScannerService.is_sha256(value):
             messagebox.showerror("Invalid Hash", "Hash must be exactly 64 hexadecimal characters.", parent=self.root)
             return
         self._add_item("hash", value.lower())
 
     def _add_multiple_hashes_dialog(self) -> None:
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Add Multiple SHA-256 Hashes")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        dialog.resizable(True, True)
-        dialog.minsize(560, 360)
+        show_add_hashes_dialog(self.root, self._add_item)
 
-        frame = ttk.Frame(dialog, padding=12)
-        frame.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(
-            frame,
-            text="Add SHA-256 hashes (one per line):",
-        ).pack(anchor=tk.W, pady=(0, 6))
-
-        text = tk.Text(frame, height=12, wrap=tk.WORD)
-        text.pack(fill=tk.BOTH, expand=True)
-
-        status_var = tk.StringVar(value="")
-        ttk.Label(frame, textvariable=status_var).pack(anchor=tk.W, pady=(6, 0))
-
-        buttons = ttk.Frame(frame)
-        buttons.pack(fill=tk.X, pady=(8, 0))
-
-        def cancel() -> None:
-            dialog.destroy()
-
-        def add_hashes() -> None:
-            raw = text.get("1.0", tk.END).strip()
-            if not raw:
-                status_var.set("No hashes provided.")
-                return
-            tokens = [line.strip() for line in raw.splitlines() if line.strip()]
-            if not tokens:
-                status_var.set("No hashes provided.")
-                return
-            added = 0
-            invalid: list[str] = []
-            seen: set[str] = set()
-            for token in tokens:
-                value = token.lower()
-                if value in seen:
-                    continue
-                seen.add(value)
-                if not _is_sha256(value):
-                    invalid.append(token)
-                    continue
-                before_count = len(self.items)
-                self._add_item("hash", value)
-                if len(self.items) > before_count:
-                    added += 1
-
-            if invalid:
-                status_var.set(f"Added {added}. Skipped invalid: {len(invalid)}")
-            else:
-                status_var.set(f"Added {added} hash(es).")
-            if added > 0:
-                dialog.after(500, dialog.destroy)
-
-        ttk.Button(buttons, text="Add", command=add_hashes).pack(side=tk.RIGHT)
-        ttk.Button(buttons, text="Cancel", command=cancel).pack(side=tk.RIGHT, padx=(0, 8))
-
-        text.focus_set()
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f"+{max(x, 0)}+{max(y, 0)}")
-
-    def _add_item(self, item_type: str, value: str) -> None:
+    def _add_item(self, item_type: str, value: str) -> bool:
         key = (item_type, value)
         if key in self.item_keys:
-            return
-        entry = {"type": item_type, "value": value, "status": "Queued"}
-        self.items.append(entry)
+            return False
+        self.items.append({"type": item_type, "value": value, "status": "Queued"})
         self.item_keys.add(key)
         self.tree.insert("", tk.END, values=(item_type, value, "Queued"))
         self.progress_var.set(f"Items queued: {len(self.items)}")
+        return True
 
     def _remove_selected(self) -> None:
         selected = self.tree.selection()
@@ -320,15 +206,24 @@ class VirusProbeGUI:
         self.progress_var.set("Ready")
 
     def _on_drop_files(self, event: Any) -> None:
-        data = event.data
         try:
-            paths = self.root.tk.splitlist(data)
+            paths = self.root.tk.splitlist(event.data)
         except Exception:
-            paths = [data]
+            paths = [event.data]
         for raw in paths:
             path = str(raw).strip().strip("{}")
             if path and Path(path).is_file():
                 self._add_item("file", path)
+
+    def _collect_pending_entries(self) -> list[tuple[str, str, str]]:
+        tree_entries: list[tuple[str, str, str]] = []
+        for iid in self.tree.get_children():
+            vals = self.tree.item(iid, "values")
+            if not vals:
+                continue
+            item_type, value, _ = vals
+            tree_entries.append((iid, item_type, value))
+        return [e for e in tree_entries if e[1] == "file"] + [e for e in tree_entries if e[1] == "hash"]
 
     def _scan_items(self) -> None:
         if self.is_scanning:
@@ -340,68 +235,82 @@ class VirusProbeGUI:
             messagebox.showerror("Missing API Key", "Set an API key before scanning.", parent=self.root)
             return
 
-        tree_entries: list[tuple[str, str, str]] = []
-        for iid in self.tree.get_children():
-            vals = self.tree.item(iid, "values")
-            if not vals:
-                continue
-            item_type, value, _ = vals
-            tree_entries.append((iid, item_type, value))
-        self._pending_entries = (
-            [e for e in tree_entries if e[1] == "file"]
-            + [e for e in tree_entries if e[1] == "hash"]
-        )
+        self._pending_entries = self._collect_pending_entries()
+        for iid, _, _ in self._pending_entries:
+            self._set_row_status(iid, "Scanning...")
 
         self.is_scanning = True
         self.last_results = []
         self.report_button.configure(state=tk.DISABLED)
-        self.remove_btn.configure(state=tk.DISABLED)
-        self.clear_btn.configure(state=tk.DISABLED)
-        self.scan_btn.configure(state=tk.DISABLED)
-        self.add_menu_btn.configure(state=tk.DISABLED)
+        self._set_controls_enabled(False)
         self.progress_var.set("Starting scan...")
-        thread = threading.Thread(target=self._scan_worker, daemon=True)
-        thread.start()
+        threading.Thread(target=self._scan_worker, daemon=True).start()
+
+    def _safe_after(self, callback, *args) -> None:
+        try:
+            if self.root.winfo_exists():
+                self.root.after(0, callback, *args)
+        except tk.TclError:
+            pass
 
     def _scan_worker(self) -> None:
+        scanner: ScannerService | None = None
         try:
-            self.scanner = ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB)
-            self.scanner.init_cache()
-            results: list[dict[str, Any]] = []
-            # Use entries captured on the main thread — avoids touching Tkinter from background thread.
+            scanner = ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB, max_workers=SCAN_WORKERS)
+            self.scanner = scanner
+            scanner.init_cache()
+
             ordered_entries = self._pending_entries
             total = len(ordered_entries)
-            for idx, (iid, item_type, value) in enumerate(ordered_entries, start=1):
-                self.root.after(0, self._set_row_status, iid, f"Scanning ({idx}/{total})...")
-                if item_type == "hash":
-                    result = self.scanner.scan_hash(value)
-                else:
-                    result = self.scanner.scan_file(value)
-                results.append(result)
-                status = self._result_status(result)
-                self.root.after(0, self._set_row_status, iid, status)
-            self.last_results = results
-            if results:
-                self.root.after(0, lambda: self.report_button.configure(state=tk.NORMAL))
-            self.root.after(0, lambda: self.progress_var.set("Scan complete"))
+            results: list[dict[str, Any] | None] = [None] * total
+            completed = 0
+
+            file_entries = [(idx, iid, value) for idx, (iid, item_type, value) in enumerate(ordered_entries) if item_type == "file"]
+            hash_entries = [(idx, iid, value) for idx, (iid, item_type, value) in enumerate(ordered_entries) if item_type == "hash"]
+
+            def apply_results(
+                entries: list[tuple[int, str, str]],
+                scan_fn,
+            ) -> int:
+                done = 0
+                if not entries:
+                    return done
+                scanned = scan_fn([value for _, _, value in entries])
+                for (idx, iid, _), result in zip(entries, scanned):
+                    results[idx] = result
+                    done += 1
+                    current = completed + done
+                    self._safe_after(self._set_row_status, iid, self._result_status(result))
+                    self._safe_after(lambda c=current: self.progress_var.set(f"Scanning {c}/{total}..."))
+                return done
+
+            completed += apply_results(file_entries, scanner.scan_files)
+            completed += apply_results(hash_entries, scanner.scan_hashes)
+
+            self.last_results = [r for r in results if r is not None]
+            if self.last_results:
+                self._safe_after(lambda: self.report_button.configure(state=tk.NORMAL))
+            self._safe_after(lambda: self.progress_var.set("Scan complete"))
         except Exception as exc:
-            self.root.after(0, lambda: messagebox.showerror("Scan Error", str(exc), parent=self.root))
-            self.root.after(0, lambda: self.progress_var.set("Scan failed"))
+            self._safe_after(lambda: messagebox.showerror("Scan Error", str(exc), parent=self.root))
+            self._safe_after(lambda: self.progress_var.set("Scan failed"))
         finally:
+            if scanner is not None:
+                scanner.close()
+            self.scanner = None
             self.is_scanning = False
-            self.root.after(0, self._restore_scan_buttons)
+            self._safe_after(self._restore_scan_buttons)
+            if self._is_closing:
+                self._safe_after(self.root.destroy)
 
     def _restore_scan_buttons(self) -> None:
-        self.remove_btn.configure(state=tk.NORMAL)
-        self.clear_btn.configure(state=tk.NORMAL)
-        self.scan_btn.configure(state=tk.NORMAL)
-        self.add_menu_btn.configure(state=tk.NORMAL)
+        if not self._is_closing:
+            self._set_controls_enabled(True)
 
     def _set_row_status(self, iid: str, status: str) -> None:
         vals = self.tree.item(iid, "values")
-        if not vals:
-            return
-        self.tree.item(iid, values=(vals[0], vals[1], status))
+        if vals:
+            self.tree.item(iid, values=(vals[0], vals[1], status))
 
     @staticmethod
     def _result_status(result: dict[str, Any]) -> str:
@@ -419,150 +328,15 @@ class VirusProbeGUI:
         if not self.last_results:
             messagebox.showinfo("No Results", "Run a scan first to generate a report.", parent=self.root)
             return
-        selection = self._show_generate_report_dialog()
-        if not selection:
-            return
-        output_path, fmt = selection
-        try:
-            write_report(self.last_results, output_path, fmt)
-            self._show_report_saved_dialog(output_path)
-        except Exception as exc:
-            messagebox.showerror("Report Error", str(exc), parent=self.root)
-
-    def _show_generate_report_dialog(self) -> tuple[str, str] | None:
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Generate Report")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        dialog.resizable(False, False)
-
-        result: dict[str, str] = {}
-
-        frame = ttk.Frame(dialog, padding=12)
-        frame.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(frame, text="Report Name").grid(row=0, column=0, sticky=tk.W, pady=(0, 6))
-        default_name = f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        name_var = tk.StringVar(value=default_name)
-        name_entry = ttk.Entry(frame, textvariable=name_var, width=36)
-        name_entry.grid(row=0, column=1, columnspan=2, sticky=tk.EW, pady=(0, 6))
-
-        ttk.Label(frame, text="Report Type").grid(row=1, column=0, sticky=tk.W, pady=(0, 6))
-        fmt_var = tk.StringVar(value="json")
-        fmt_combo = ttk.Combobox(frame, textvariable=fmt_var, values=["json", "csv", "txt", "md"], state="readonly", width=10)
-        fmt_combo.grid(row=1, column=1, sticky=tk.W, pady=(0, 6))
-
-        ttk.Label(frame, text="Folder").grid(row=2, column=0, sticky=tk.W)
-        folder_var = tk.StringVar(value=self.default_report_dir)
-        folder_entry = ttk.Entry(frame, textvariable=folder_var, width=36)
-        folder_entry.grid(row=2, column=1, sticky=tk.EW)
-
-        def browse_folder() -> None:
-            selected = filedialog.askdirectory(parent=dialog, title="Select Report Folder", initialdir=folder_var.get() or self.default_report_dir)
-            if selected:
-                folder_var.set(selected)
-
-        ttk.Button(frame, text="Browse...", command=browse_folder).grid(row=2, column=2, padx=(6, 0))
-        frame.columnconfigure(1, weight=1)
-
-        buttons = ttk.Frame(frame)
-        buttons.grid(row=3, column=0, columnspan=3, sticky=tk.EW, pady=(12, 0))
-
-        def confirm() -> None:
-            name = name_var.get().strip()
-            folder = folder_var.get().strip()
-            fmt = fmt_var.get().strip().lower() or "json"
-            if not name:
-                messagebox.showerror("Invalid Name", "Report name is required.", parent=dialog)
-                return
-            if any(ch in INVALID_FILENAME_CHARS for ch in name):
-                messagebox.showerror(
-                    "Invalid Name",
-                    'Report name contains invalid characters: <>:"/\\|?*',
-                    parent=dialog,
-                )
-                return
-            if name[-1] in {" ", "."}:
-                messagebox.showerror(
-                    "Invalid Name",
-                    "Report name cannot end with a space or period.",
-                    parent=dialog,
-                )
-                return
-            stem_upper = Path(name).stem.upper()
-            if stem_upper in WINDOWS_RESERVED_NAMES:
-                messagebox.showerror(
-                    "Invalid Name",
-                    "Report name uses a reserved system filename.",
-                    parent=dialog,
-                )
-                return
-            if not folder:
-                messagebox.showerror("Invalid Folder", "Select a folder for the report.", parent=dialog)
-                return
-            folder_path = Path(folder)
-            if not folder_path.exists() or not folder_path.is_dir():
-                messagebox.showerror("Invalid Folder", "Selected folder does not exist.", parent=dialog)
-                return
-            safe_name = name if "." not in Path(name).name else Path(name).stem
-            output_path = str(folder_path / f"{safe_name}.{fmt}")
-            result["path"] = output_path
-            result["fmt"] = fmt
-            self.default_report_dir = str(folder_path)
-            dialog.destroy()
-
-        def cancel() -> None:
-            dialog.destroy()
-
-        ttk.Button(buttons, text="Generate", command=confirm).pack(side=tk.RIGHT)
-        ttk.Button(buttons, text="Cancel", command=cancel).pack(side=tk.RIGHT, padx=(0, 8))
-
-        name_entry.focus_set()
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f"+{max(x, 0)}+{max(y, 0)}")
-        self.root.wait_window(dialog)
-
-        if "path" not in result or "fmt" not in result:
-            return None
-        return result["path"], result["fmt"]
-
-    def _show_report_saved_dialog(self, output_path: str) -> None:
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Report Saved")
-        dialog.transient(self.root)
-        dialog.grab_set()
-        dialog.resizable(False, False)
-
-        frame = ttk.Frame(dialog, padding=12)
-        frame.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(frame, text="Report saved successfully.").pack(anchor=tk.W)
-        ttk.Label(frame, text=output_path, wraplength=540).pack(anchor=tk.W, pady=(4, 10))
-
-        buttons = ttk.Frame(frame)
-        buttons.pack(fill=tk.X)
-
-        def close_dialog() -> None:
-            dialog.destroy()
-
-        def open_report() -> None:
-            self._open_path(output_path)
-            close_dialog()
-
-        def open_folder() -> None:
-            self._open_folder(output_path)
-            close_dialog()
-
-        ttk.Button(buttons, text="Open Report", command=open_report).pack(side=tk.LEFT)
-        ttk.Button(buttons, text="Open Folder", command=open_folder).pack(side=tk.LEFT, padx=8)
-        ttk.Button(buttons, text="Close", command=close_dialog).pack(side=tk.RIGHT)
-
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        new_dir = show_generate_report_dialog(
+            self.root,
+            self.default_report_dir,
+            self.last_results,
+            self._open_path,
+            self._open_folder,
+        )
+        if new_dir:
+            self.default_report_dir = new_dir
 
     def _open_path(self, path: str) -> None:
         try:
@@ -576,48 +350,22 @@ class VirusProbeGUI:
             messagebox.showerror("Open Error", str(exc), parent=self.root)
 
     def _open_folder(self, path: str) -> None:
-        folder = str(Path(path).resolve().parent)
-        self._open_path(folder)
+        self._open_path(str(Path(path).resolve().parent))
 
-    def _save_api_key_to_env(self, api_key: str) -> None:
-        lines: list[str] = []
-        if DOTENV_PATH.exists():
-            lines = DOTENV_PATH.read_text(encoding="utf-8").splitlines()
-        updated = False
-        out: list[str] = []
-        for line in lines:
-            stripped = line.strip()
-            if any(stripped.startswith(f"{name}=") for name in API_KEY_ENV_VARS):
-                if not updated:
-                    out.append(f"VT_API_KEY={api_key}")
-                    updated = True
-                continue
-            out.append(line)
-        if not updated:
-            out.append(f"VT_API_KEY={api_key}")
-        DOTENV_PATH.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
-        os.environ["VT_API_KEY"] = api_key
-
-    def _remove_api_key_from_env(self) -> None:
-        if not DOTENV_PATH.exists():
+    def _on_close(self) -> None:
+        if self.is_scanning:
+            self._is_closing = True
+            self.progress_var.set("Closing after scan completes...")
             return
-        lines = DOTENV_PATH.read_text(encoding="utf-8").splitlines()
-        out = [
-            line
-            for line in lines
-            if not any(line.strip().startswith(f"{name}=") for name in API_KEY_ENV_VARS)
-        ]
-        if out:
-            DOTENV_PATH.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
-        else:
-            DOTENV_PATH.unlink(missing_ok=True)
-        for name in API_KEY_ENV_VARS:
-            os.environ.pop(name, None)
+        if self.scanner is not None:
+            self.scanner.close()
+            self.scanner = None
+        self.root.destroy()
 
 
 def main() -> None:
     root = TkinterDnD.Tk()
-    app = VirusProbeGUI(root)
+    VirusProbeGUI(root)
     root.mainloop()
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility entrypoint for VirusProbe CLI."""
+"""Entrypoint for VirusProbe CLI."""
 
 from cli.app import main
 

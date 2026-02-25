@@ -1,230 +1,100 @@
-# VirusProbe
+﻿# VirusProbe
 
-VirusProbe is a VirusTotal-powered SHA-256 scanner with both a command-line interface and a desktop GUI.
+VirusProbe scans files, directories, and SHA-256 hashes against VirusTotal. It includes both a CLI and a Tkinter GUI, and uses local caching to reduce repeated API calls.
 
-- CLI entrypoint: `cli.py`
-- GUI entrypoint: `gui.py`
-- Shared engine: `common/service.py`
-- Shared report writer: `common/reporting.py`
+## Requirements
 
-## Quick Start
+- Python 3.11+
+- VirusTotal API key
 
-1. Install dependencies:
+## Install
+
+### CLI
 
 ```bash
 pip install -r requirements-cli.txt
+```
+
+### GUI
+
+```bash
 pip install -r requirements-gui.txt
 ```
 
-```powershell
-pip install -r requirements-cli.txt
-pip install -r requirements-gui.txt
-```
+## Quick Start
 
-2. Set your VirusTotal API key:
+### 1) Set API key (bash)
 
 ```bash
 export VT_API_KEY="your_api_key_here"
 ```
 
-```powershell
-$env:VT_API_KEY="your_api_key_here"
+Or save once via CLI:
+
+```bash
+python cli.py --api-key "your_api_key_here" --save-api-key
 ```
 
-3. Run a first CLI scan:
+### 2) Run scan (CLI)
 
 ```bash
 python cli.py -h 275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F
 ```
 
-```powershell
-python cli.py -h 275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F
-```
-
-4. Optional: generate a report:
-
-```bash
-python cli.py -h 275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F -o report.json --format json
-```
-
-```powershell
-python cli.py -h 275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F -o report.json --format json
-```
-
-5. Launch the GUI:
+### 3) Launch GUI
 
 ```bash
 python gui.py
 ```
-
-```powershell
-python gui.py
-```
-
-## What It Does
-
-VirusProbe scans:
-- files
-- directories (CLI)
-- SHA-256 hashes
-
-And provides:
-- consistent verdict categories (`Malicious`, `Suspicious`, `Clean`, `Undetected`)
-- local caching (memory + SQLite) to reduce repeat API calls
-- report export in `json`, `csv`, `txt`, and `md`
-
-## Project Structure
-
-```text
-Virus Check Tool/
-|-- cli.py
-|-- gui.py
-|-- cli/
-|   `-- app.py
-|-- gui/
-|   `-- app.py
-|-- common/
-|   |-- service.py
-|   `-- reporting.py
-|-- cache/
-|   `-- vt_cache.db
-|-- requirements-cli.txt
-|-- requirements-gui.txt
-`-- README.md
-```
-
-## Requirements
-
-- Python 3.11 or newer
-- A VirusTotal API key
-
-## Installation
-
-### CLI
-
-```bash
-pip install -r requirements-cli.txt
-```
-
-```powershell
-pip install -r requirements-cli.txt
-```
-
-### GUI
-
-```bash
-pip install -r requirements-gui.txt
-```
-
-```powershell
-pip install -r requirements-gui.txt
-```
-
-Notes:
-- `requirements-gui.txt` includes `tkinterdnd2` for drag-and-drop support.
-- Tkinter itself is part of most standard Python installs.
-
-## Running
-
-### CLI
-
-```bash
-python cli.py --help
-```
-
-```powershell
-python cli.py --help
-```
-
-### GUI
-
-```bash
-python gui.py
-```
-
-```powershell
-python gui.py
-```
-
-## API Key Configuration
-
-VirusProbe checks API key sources in this order:
-1. CLI `--api-key`
-2. Environment variables: `VT_API_KEY`, `VIRUSTOTAL_API_KEY`
-3. Local `.env` file in project root
-
-Example `.env`:
-
-```env
-VT_API_KEY=your_api_key_here
-```
-
-### CLI API key commands
-
-Save key into `.env`:
-
-```bash
-python cli.py --api-key YOUR_KEY --save-api-key
-```
-
-```powershell
-python cli.py --api-key YOUR_KEY --save-api-key
-```
-
-Remove saved key from `.env`:
-
-```bash
-python cli.py --clear-api-key
-```
-
-```powershell
-python cli.py --clear-api-key
-```
-
-### GUI API key behavior
-
-- Use **Set API Key**
-- Key is autosaved to `.env`
-- GUI status masks the key as `xxxx...xxxx`
 
 ## CLI Usage
 
+```bash
+python cli.py [options]
+```
+
 ### Input rules
 
-- `--file` and `--directory` cannot be used together
-- `--directory` can be combined with `--hash`
-- `--recursive` is valid only with `--directory`
+- Use `--directory` or `--file`, not both.
+- `--directory` can be combined with `--hash`.
+- `--recursive` is valid only with `--directory`.
+- At least one scan input is required: `--directory`, `--file`, or `--hash`.
 
-### Common commands
+### Options
 
-Scan one or more files:
+| Flag | Description |
+|---|---|
+| `-f, --file, --files` | One or more file paths to scan |
+| `-h, --hash, --hashes` | One or more SHA-256 hashes to scan |
+| `-d, --directory, --dir` | Scan all files in a directory |
+| `-r, --recursive` | Recurse subdirectories (directory mode only) |
+| `-o, --output` | Report output path |
+| `--format` | Report format: `json`, `csv`, `txt`, `md` (default `json`) |
+| `--workers` | Concurrent scan workers (default `4`, minimum `1`) |
+| `--api-key` | API key override for this run |
+| `--save-api-key` | Save `--api-key` into `.env` |
+| `--clear-api-key` | Remove saved API key from `.env` |
+| `--clear-cache` | Clear local SQLite cache |
+| `--help` | Show help |
+
+### Examples
+
+Scan files:
 
 ```bash
 python cli.py -f file1.exe file2.dll
 ```
 
-```powershell
-python cli.py -f file1.exe file2.dll
-```
-
-Scan one or more hashes:
+Scan hashes:
 
 ```bash
 python cli.py -h HASH1 HASH2
 ```
 
-```powershell
-python cli.py -h HASH1 HASH2
-```
-
-Scan a directory:
+Scan directory:
 
 ```bash
 python cli.py -d /path/to/folder
-```
-
-```powershell
-python cli.py -d C:\path\to\folder
 ```
 
 Scan directory recursively:
@@ -233,154 +103,125 @@ Scan directory recursively:
 python cli.py -d /path/to/folder -r
 ```
 
-```powershell
-python cli.py -d C:\path\to\folder -r
-```
-
-Scan directory + hashes in one run:
+Scan directory plus hashes:
 
 ```bash
 python cli.py -d /path/to/folder -h HASH1 HASH2
 ```
 
-```powershell
-python cli.py -d C:\path\to\folder -h HASH1 HASH2
-```
-
-Write a report:
+Generate report:
 
 ```bash
 python cli.py -f sample.exe -o reports/scan.json --format json
 ```
 
-```powershell
-python cli.py -f sample.exe -o reports\scan.json --format json
+Clear cache only:
+
+```bash
+python cli.py --clear-cache
 ```
-
-Supported report formats:
-- `json`
-- `csv`
-- `txt`
-- `md`
-
-### CLI options reference
-
-- `-f, --file, --files`: one or more file paths
-- `-h, --hash, --hashes`: one or more SHA-256 hashes
-- `-d, --directory, --dir`: directory path
-- `-r, --recursive`: recurse subdirectories (directory mode only)
-- `-o, --output`: output report path
-- `--format`: `json|csv|txt|md` (default `json`)
-- `--api-key`: API key override
-- `--save-api-key`: persist `--api-key` to `.env`
-- `--clear-api-key`: remove saved key from `.env`
-- `--clear-cache`: clear local cache
-- `--help`: show help
 
 ## GUI Usage
 
-GUI supports:
-- Add Item menu:
+- **Set API Key** button stores/removes key in `.env` automatically.
+- **Add Item** menu:
   - Add File(s)
   - Add SHA-256 Hash
   - Add Multiple SHA-256 Hashes (one per line)
-- drag-and-drop files directly into the list
-- per-item scan status in a table
-- deduping identical queued items
-- Generate Report dialog (name, type, destination folder)
-- report completion dialog with:
-  - **Open Report**
-  - **Open Folder**
-- **Clear Cache** action
+- Drag-and-drop supports files.
+- Duplicate items are skipped.
+- **Scan** processes queued items.
+- **Generate Report** is always visible and becomes enabled after at least one completed scan result.
+- Report dialog lets you choose:
+  - report name
+  - format (`json`, `csv`, `txt`, `md`)
+  - destination folder
+- After report generation, dialog provides:
+  - Open Report
+  - Open Folder
+- **Clear Cache** clears local SQLite cache.
 
-Report button behavior:
-- visible always
-- disabled until at least one scan completes
+## API Key Resolution Order
 
-## Cache Behavior
+1. CLI `--api-key`
+2. Environment variables: `VT_API_KEY`, `VIRUSTOTAL_API_KEY`
+3. Project `.env` file
+
+Example `.env`:
+
+```env
+VT_API_KEY=your_api_key_here
+```
+
+## Cache
 
 VirusProbe uses two cache layers:
 
-1. In-memory LRU cache (process-local)
-- default max entries: `512`
-- cleared when process exits
-- fastest lookup path
+1. In-memory LRU cache (per process, default max entries: `512`)
+2. SQLite cache at `cache/vt_cache.db` (WAL mode enabled)
 
-2. SQLite cache in `cache/vt_cache.db`
-- WAL mode enabled
-- default row cap: `10000`
-- default expiry: `7` days
-- stores compact binary hash + packed stats
+SQLite defaults:
 
-Expected companion files when WAL is active:
-- `cache/vt_cache.db-wal`
-- `cache/vt_cache.db-shm`
+- Expiry: 7 days
+- Max rows: 10,000
 
-### Clearing cache
+When WAL is active, `vt_cache.db-wal` and `vt_cache.db-shm` are expected.
 
-`--clear-cache` (CLI) and **Clear Cache** (GUI):
-- clears SQLite rows
-- checkpoints/truncates WAL
-- clears in-memory cache for the running process
+Both CLI `--clear-cache` and GUI **Clear Cache** clear:
 
-This is intentional so old in-process entries do not survive after a cache clear.
+- SQLite cache rows
+- WAL checkpoint/truncate
+- in-memory cache for that running process
 
-## Scoring and Verdict Criteria
+## Verdict Criteria
 
-Per item:
-- `Malicious`: malicious detections >= 10
-- `Suspicious`: malicious detections between 1 and 9
-- `Clean`: malicious detections == 0 and result exists
-- `Undetected`: VirusTotal has no record for the hash
+Per item, threat classification is based on VirusTotal malicious engine count:
 
-Displayed engine stats:
+- `Malicious`: malicious >= 10
+- `Suspicious`: malicious is 1-9
+- `Clean`: malicious = 0 with a known result
+- `Undetected`: VirusTotal has no record for the SHA-256 hash
+- `Error`: invalid input or runtime/API error
+
+Displayed engine counters:
+
 - `malicious`
 - `suspicious`
 - `harmless`
 - `undetected`
 
-Final summary uses the same verdict language as per-item output.
-
 ## Reports
 
-All report formats include:
-- generation timestamp
-- summary counts
-- per-item results
+Supported formats:
 
-Format notes:
-- `json`: structured output with full result objects
-- `csv`: flat tabular export with key fields
-- `txt`: human-readable summary and line entries
-- `md`: Markdown table format
+- `json`
+- `csv`
+- `txt`
+- `md`
 
-## Error Handling Notes
+Reports include summary counts and per-item scan results.
 
-- Missing file paths in CLI `--file` list are skipped and reported, not scanned.
-- Invalid/nonexistent directory for `--directory` raises an input error.
-- Hashes with no VT record are treated as `Undetected` (not a crash).
-- Unexpected VT/API/cache errors are returned as per-item `status=error`.
+## Project Structure
 
-## Security Notes
-
-- Do not hardcode API keys in source files.
-- Prefer `.env` or environment variables.
-- `.env` should be treated as sensitive and excluded from source control.
-
-## Troubleshooting
-
-`VirusTotal API key is required`:
-- set `VT_API_KEY` or pass `--api-key`
-
-Drag-and-drop does not work in GUI:
-- ensure GUI dependencies are installed:
-  - Bash: `pip install -r requirements-gui.txt`
-  - PowerShell: `pip install -r requirements-gui.txt`
-- verify `tkinterdnd2` is installed in the same Python environment as `gui.py`
-- on Linux, ensure a Tcl/Tk installation is present (`sudo apt install python3-tk`)
-
-Seeing `vt_cache.db-wal` and `vt_cache.db-shm`:
-- normal SQLite WAL behavior
-
-Cache clear did not reduce RAM in another running app:
-- in-memory cache is per process; clear in each running process or restart apps
+```text
+VirusProbe/
+|-- cli.py
+|-- gui.py
+|-- cli/
+|   |-- app.py
+|   `-- display.py
+|-- gui/
+|   |-- app.py
+|   `-- dialogs.py
+|-- common/
+|   |-- __init__.py
+|   |-- cache.py
+|   |-- env.py
+|   |-- reporting.py
+|   `-- service.py
+|-- cache/
+|   `-- vt_cache.db
+|-- requirements-cli.txt
+|-- requirements-gui.txt
+`-- README.md
+```

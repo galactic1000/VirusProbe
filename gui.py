@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compatibility entrypoint for VirusProbe GUI."""
+"""Entrypoint for VirusProbe GUI."""
 
 from gui.app import main
 
