@@ -94,9 +94,9 @@ def print_result(result: dict, index: int | None = None, total: int | None = Non
     if result.get("type") == "file":
         print(f"Path: {result.get('item', '')}")
         if result.get("file_hash"):
-            print(f"SHA-256 Hash: {result['file_hash']}")
+            print(f"SHA-256 hash: {result['file_hash']}")
     else:
-        print(f"SHA-256 Hash: {result.get('file_hash', '')}")
+        print(f"SHA-256 hash: {result.get('file_hash', '')}")
 
     if result.get("status") == "undetected":
         print("\n" + format_colored("Undetected: No VirusTotal record found", Fore.YELLOW))
@@ -166,3 +166,4 @@ def print_scan_summary(results: list[dict]) -> None:
     print()
     print(_line(BANNER_BORDER_CHAR))
     print()
+

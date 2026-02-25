@@ -68,8 +68,8 @@ class VirusProbeGUI:
         self.add_menu_btn = ttk.Menubutton(controls, text="Add Item")
         add_menu = tk.Menu(self.add_menu_btn, tearoff=False)
         add_menu.add_command(label="Add File(s)...", command=self._add_files_dialog)
-        add_menu.add_command(label="Add SHA-256 Hash...", command=self._add_hash_dialog)
-        add_menu.add_command(label="Add Multiple SHA-256 Hashes...", command=self._add_multiple_hashes_dialog)
+        add_menu.add_command(label="Add SHA-256 hash...", command=self._add_hash_dialog)
+        add_menu.add_command(label="Add multiple SHA-256 hashes...", command=self._add_multiple_hashes_dialog)
         self.add_menu_btn["menu"] = add_menu
         self.add_menu_btn.pack(side=tk.LEFT)
 
@@ -161,12 +161,12 @@ class VirusProbeGUI:
             self._add_item("file", str(path))
 
     def _add_hash_dialog(self) -> None:
-        raw = simpledialog.askstring("Add SHA-256 Hash", "Enter SHA-256 Hash (64 hex chars):", parent=self.root)
+        raw = simpledialog.askstring("Add SHA-256 hash", "Enter SHA-256 hash (64 hex chars):", parent=self.root)
         if raw is None:
             return
         value = raw.strip()
         if not ScannerService.is_sha256(value):
-            messagebox.showerror("Invalid Hash", "Hash must be exactly 64 hexadecimal characters.", parent=self.root)
+            messagebox.showerror("Invalid hash", "Hash must be exactly 64 hexadecimal characters.", parent=self.root)
             return
         self._add_item("hash", value.lower())
 
@@ -229,7 +229,7 @@ class VirusProbeGUI:
         if self.is_scanning:
             return
         if not self.items:
-            messagebox.showinfo("No Items", "Add at least one file or SHA-256 Hash to scan.", parent=self.root)
+            messagebox.showinfo("No Items", "Add at least one file or SHA-256 hash to scan.", parent=self.root)
             return
         if not self.api_key:
             messagebox.showerror("Missing API Key", "Set an API key before scanning.", parent=self.root)
@@ -371,3 +371,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

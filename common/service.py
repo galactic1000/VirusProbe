@@ -78,7 +78,7 @@ class ScannerService:
 
     @staticmethod
     def _hash_item(value: object) -> str:
-        return f"SHA-256 Hash: {value}"
+        return f"SHA-256 hash: {value}"
 
     @staticmethod
     def _error_result(item: str, item_type: str, message: str, file_hash: str = "") -> dict[str, Any]:
@@ -238,3 +238,4 @@ class ScannerService:
         response_json = client.get(f"/files/{file_hash}").json()
         self._cache.save(file_hash, self._extract_stats(response_json))
         return response_json, False
+

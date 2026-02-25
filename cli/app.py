@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 from colorama import Fore, init
@@ -23,20 +24,27 @@ init(autoreset=True)
 
 CACHE_DB = Path(__file__).resolve().parents[1] / "cache" / "vt_cache.db"
 SCAN_WORKERS = 4
+_OUTPUT_AUTO = "__AUTO_OUTPUT__"
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="VirusProbe - scan files or SHA-256 Hashes using VirusTotal",
+        description="VirusProbe - scan files or SHA-256 hashes using VirusTotal",
         add_help=True,
     )
-    parser.add_argument("--help", action="help", help="Show this help message and exit")
     parser.add_argument("-f", "--file", "--files", dest="files", nargs="+", help="One or more file paths to scan")
-    parser.add_argument("-s", "--hash", "--hashes", dest="hashes", nargs="+", help="One or more SHA-256 Hashes to scan")
+    parser.add_argument("-s", "--hash", "--hashes", dest="hashes", nargs="+", help="One or more SHA-256 hashes to scan")
     parser.add_argument("-d", "--directory", "--dir", help="Scan all files in a directory")
     parser.add_argument("-r", "--recursive", action="store_true", help="When using --directory, scan subdirectories recursively")
-    parser.add_argument("-o", "--output", help="Write report to file")
-    parser.add_argument("--format", choices=["json", "csv", "txt", "md"], default="json", help="Report format for --output (default: json)")
+    parser.add_argument(
+        "-o",
+        "--output",
+        nargs="?",
+        const=_OUTPUT_AUTO,
+        metavar="OUTPUT",
+        help="Write report to file (default: scan_report_YYYYMMDD_HHMMSS.<format>)",
+    )
+    parser.add_argument("--format", choices=["json", "csv", "txt", "md"], help="Report format for report output (default: json)")
     parser.add_argument("--workers", type=int, default=SCAN_WORKERS, help=f"Concurrent scan workers (default: {SCAN_WORKERS})")
     parser.add_argument("--api-key", help="VirusTotal API key (overrides env/.env)")
     parser.add_argument("--save-api-key", action="store_true", help="Save --api-key into .env for future runs")
@@ -95,6 +103,9 @@ def main() -> None:
     args = parser.parse_args()
     explicit_api_key = (args.api_key or "").strip()
     scan_requested = bool(args.directory or args.files or args.hashes)
+    report_format = args.format or "json"
+    if args.output == _OUTPUT_AUTO:
+        args.output = f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{report_format}"
 
     if args.workers < 1:
         parser.error("--workers must be >= 1")
@@ -117,7 +128,7 @@ def main() -> None:
     print_banner()
     print_run_context(f"RUN CONTEXT: {'Directory Scan' if args.directory else 'Item Scan'}", Fore.CYAN)
     if args.output:
-        print(format_colored(f"Report: {args.output} ({args.format})", Fore.CYAN))
+        print(format_colored(f"Report: {args.output} ({report_format})", Fore.CYAN))
 
     service = ScannerService(api_key=api_key, cache_db=CACHE_DB, max_workers=args.workers)
     try:
@@ -140,7 +151,7 @@ def main() -> None:
         print(_line(BANNER_BORDER_CHAR))
         print_scan_summary(results)
         if args.output:
-            write_report(results, args.output, args.format, separator_width=SEPARATOR_WIDTH)
+            write_report(results, args.output, report_format, separator_width=SEPARATOR_WIDTH)
             print(format_colored(f"Report saved to {args.output}", Fore.CYAN))
     finally:
         service.close()
@@ -148,4 +159,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 

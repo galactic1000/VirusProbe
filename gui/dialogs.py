@@ -31,7 +31,7 @@ def show_add_hashes_dialog(parent: tk.Tk, add_item: Callable[[str, str], bool]) 
     `add_item(type, value)` should return True if the item was newly added.
     """
     dialog = tk.Toplevel(parent)
-    dialog.title("Add Multiple SHA-256 Hashes")
+    dialog.title("Add multiple SHA-256 hashes")
     dialog.transient(parent)
     dialog.grab_set()
     dialog.resizable(True, True)
