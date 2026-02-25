@@ -1,0 +1,3 @@
+-r requirements-cli.txt
+pytest>=8.2.0
+

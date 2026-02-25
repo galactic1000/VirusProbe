@@ -253,6 +253,8 @@ Run all unit tests:
 pytest -q
 ```
 
+Test files live in the top-level `tests/` directory.
+
 Run a specific test module:
 
 ```bash
