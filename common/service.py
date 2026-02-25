@@ -257,10 +257,6 @@ class ScannerService:
         files = [str(f) for f in (path.rglob("*") if recursive else path.iterdir()) if f.is_file()]
         return self.scan_files(files, on_result=on_result)
 
-    def scan_items(self, items: list[str], on_result: Callable[[dict[str, Any]], None] | None = None) -> list[dict[str, Any]]:
-        """Scans a mixed list of file paths and hashes."""
-        return self._scan_many(lambda item: self.scan_hash(item) if self.is_sha256(item) else self.scan_file(item), items, on_result=on_result)
-
     @staticmethod
     def is_sha256(value: str) -> bool:
         return len(value) == 64 and all(c in _HEX_CHARS for c in value)

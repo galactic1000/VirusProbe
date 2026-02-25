@@ -173,18 +173,3 @@ def test_scan_hashes_on_result_callback_fires_for_each_item(tmp_path) -> None:
     assert all(r["status"] == "ok" for r in fired)
 
 
-def test_scan_items_mixed_hash_and_file(tmp_path) -> None:
-    service = _service(tmp_path)
-    f = tmp_path / "file.bin"
-    f.write_bytes(b"sample")
-
-    try:
-        with patch.object(service, "scan_hash", return_value={"status": "ok", "type": "hash"}) as scan_hash_mock:
-            with patch.object(service, "scan_file", return_value={"status": "ok", "type": "file"}) as scan_file_mock:
-                results = service.scan_items([str(f), "f" * 64])
-    finally:
-        service.close()
-
-    assert len(results) == 2
-    scan_file_mock.assert_called_once_with(str(f))
-    scan_hash_mock.assert_called_once_with("f" * 64)

@@ -11,7 +11,7 @@ from common.reporting import write_report
 
 SAMPLE_RESULTS = [
     {
-        "item": "SHA-256 Hash: " + "a" * 64,
+        "item": "SHA-256 hash: " + "a" * 64,
         "type": "hash",
         "file_hash": "a" * 64,
         "malicious": 12,
@@ -23,7 +23,7 @@ SAMPLE_RESULTS = [
         "message": "Queried VirusTotal API",
     },
     {
-        "item": "SHA-256 Hash: " + "b" * 64,
+        "item": "SHA-256 hash: " + "b" * 64,
         "type": "hash",
         "file_hash": "b" * 64,
         "malicious": 0,
