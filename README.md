@@ -258,14 +258,6 @@ Current automated coverage:
 
 GUI interactions are not currently covered by automated tests.
 
-## Troubleshooting
-
-`ModuleNotFoundError: No module named 'common'` when launching CLI:
-
-- Run `python cli.py ...` (recommended), or
-- Run `python -m cli.app ...` from repository root
-- Do not run `python cli/app.py ...` directly
-
 ## Project Structure
 
 ```text
@@ -297,3 +289,6 @@ VirusProbe/
 |-- requirements-test.txt
 `-- README.md
 ```
+
+
+
