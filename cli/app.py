@@ -28,11 +28,11 @@ SCAN_WORKERS = 4
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="VirusProbe - scan files or SHA-256 Hashes using VirusTotal",
-        add_help=False,
+        add_help=True,
     )
     parser.add_argument("--help", action="help", help="Show this help message and exit")
     parser.add_argument("-f", "--file", "--files", dest="files", nargs="+", help="One or more file paths to scan")
-    parser.add_argument("-h", "--hash", "--hashes", dest="hashes", nargs="+", help="One or more SHA-256 Hashes to scan")
+    parser.add_argument("-s", "--hash", "--hashes", dest="hashes", nargs="+", help="One or more SHA-256 Hashes to scan")
     parser.add_argument("-d", "--directory", "--dir", help="Scan all files in a directory")
     parser.add_argument("-r", "--recursive", action="store_true", help="When using --directory, scan subdirectories recursively")
     parser.add_argument("-o", "--output", help="Write report to file")
@@ -108,7 +108,7 @@ def main() -> None:
     if args.directory and args.files:
         parser.error("Use either --directory OR --file inputs, not both")
     if not scan_requested:
-        parser.error("Provide one mode: -d <directory> (optionally with -h), OR -f <file1> [file2 ...], OR -h <hash1> [hash2 ...]")
+        parser.error("Provide one mode: -d <directory> (optionally with -s), OR -f <file1> [file2 ...], OR -s <hash1> [hash2 ...]")
 
     api_key = explicit_api_key or get_api_key()
     if not api_key:
@@ -148,3 +148,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

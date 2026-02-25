@@ -1,4 +1,4 @@
-﻿# VirusProbe
+# VirusProbe
 
 VirusProbe scans files, directories, and SHA-256 hashes against VirusTotal. It includes both a CLI and a Tkinter GUI, and uses local caching to reduce repeated API calls.
 
@@ -38,7 +38,7 @@ python cli.py --api-key "your_api_key_here" --save-api-key
 ### 2) Run scan (CLI)
 
 ```bash
-python cli.py -h 275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F
+python cli.py -s 275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD0F
 ```
 
 ### 3) Launch GUI
@@ -65,7 +65,7 @@ python cli.py [options]
 | Flag | Description |
 |---|---|
 | `-f, --file, --files` | One or more file paths to scan |
-| `-h, --hash, --hashes` | One or more SHA-256 hashes to scan |
+| `-s, --hash, --hashes` | One or more SHA-256 hashes to scan |
 | `-d, --directory, --dir` | Scan all files in a directory |
 | `-r, --recursive` | Recurse subdirectories (directory mode only) |
 | `-o, --output` | Report output path |
@@ -75,7 +75,7 @@ python cli.py [options]
 | `--save-api-key` | Save `--api-key` into `.env` |
 | `--clear-api-key` | Remove saved API key from `.env` |
 | `--clear-cache` | Clear local SQLite cache |
-| `--help` | Show help |
+| `-h, --help` | Show help |
 
 ### Examples
 
@@ -88,7 +88,7 @@ python cli.py -f file1.exe file2.dll
 Scan hashes:
 
 ```bash
-python cli.py -h HASH1 HASH2
+python cli.py -s HASH1 HASH2
 ```
 
 Scan directory:
@@ -106,7 +106,7 @@ python cli.py -d /path/to/folder -r
 Scan directory plus hashes:
 
 ```bash
-python cli.py -d /path/to/folder -h HASH1 HASH2
+python cli.py -d /path/to/folder -s HASH1 HASH2
 ```
 
 Generate report:
@@ -225,3 +225,4 @@ VirusProbe/
 |-- requirements-gui.txt
 `-- README.md
 ```
+
