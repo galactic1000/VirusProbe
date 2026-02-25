@@ -13,14 +13,13 @@ def build_summary(results: list[dict]) -> dict[str, int]:
     clean = suspicious = malicious = undetected = errors = 0
     for r in results:
         tl = r.get("threat_level")
-        m = r.get("malicious", 0)
         if tl == "Error":
             errors += 1
         elif tl == "Undetected":
             undetected += 1
-        elif m >= 10:
+        elif tl == "Malicious":
             malicious += 1
-        elif m > 0:
+        elif tl == "Suspicious":
             suspicious += 1
         else:
             clean += 1
@@ -32,6 +31,11 @@ def build_summary(results: list[dict]) -> dict[str, int]:
         "undetected": undetected,
         "errors": errors,
     }
+
+
+def _md_cell(value: object) -> str:
+    """Escapes pipe characters so they don't break Markdown table cells."""
+    return str(value).replace("|", "\\|")
 
 
 def write_report(results: list[dict], output_path: str, report_format: str, separator_width: int = 72) -> None:
@@ -67,6 +71,7 @@ def write_report(results: list[dict], output_path: str, report_format: str, sepa
             f"- Suspicious: {summary['suspicious']}",
             f"- Malicious: {summary['malicious']}",
             f"- Undetected: {summary['undetected']}",
+            f"- Errors: {summary['errors']}",
             "",
             "## Results",
             "",
@@ -75,9 +80,9 @@ def write_report(results: list[dict], output_path: str, report_format: str, sepa
         ]
         for r in results:
             lines.append(
-                f"| {r.get('item', '')} | {r.get('type', '')} | {r.get('malicious', 0)} | "
+                f"| {_md_cell(r.get('item', ''))} | {_md_cell(r.get('type', ''))} | {r.get('malicious', 0)} | "
                 f"{r.get('suspicious', 0)} | {r.get('harmless', 0)} | {r.get('undetected', 0)} | "
-                f"{r.get('threat_level', '')} | {r.get('status', '')} |"
+                f"{_md_cell(r.get('threat_level', ''))} | {_md_cell(r.get('status', ''))} |"
             )
         output.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return
@@ -91,6 +96,7 @@ def write_report(results: list[dict], output_path: str, report_format: str, sepa
         f"Suspicious: {summary['suspicious']}",
         f"Malicious: {summary['malicious']}",
         f"Undetected: {summary['undetected']}",
+        f"Errors: {summary['errors']}",
         "",
         "Results:",
         "-" * separator_width,
@@ -103,4 +109,3 @@ def write_report(results: list[dict], output_path: str, report_format: str, sepa
             f"=> {r.get('threat_level', '')} ({r.get('status', '')})"
         )
     output.write_text("\n".join(lines) + "\n", encoding="utf-8")
-

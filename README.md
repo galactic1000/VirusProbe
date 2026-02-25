@@ -100,11 +100,13 @@ python cli.py [options]
 | `-r, --recursive` | Recurse subdirectories (directory mode only) |
 | `-o, --output [OUTPUT]` | Write report to file; when used without value, auto-generates `scan_report_YYYYMMDD_HHMMSS.<format>` |
 | `--format {json,csv,txt,md}` | Report format for `--output` (default: `json`) |
-| `--workers WORKERS` | Concurrent scan workers (default: `4`, minimum: `1`) |
+| `--requests-per-minute N` | Max VirusTotal API requests per minute (default: `4`, `0` = unlimited) |
+| `--workers WORKERS` | Concurrent scan workers (default: matches `--requests-per-minute`, minimum: `1`) |
 | `--api-key API_KEY` | VirusTotal API key for this run |
 | `--save-api-key` | Save `--api-key` into `.env` |
 | `--clear-api-key` | Remove saved API key from `.env` |
 | `--clear-cache` | Clear local SQLite cache |
+| `--version` | Print version and exit |
 | `-h, --help` | Show help and exit |
 
 ### CLI examples
@@ -149,6 +151,18 @@ Generate report (auto filename):
 
 ```bash
 python cli.py -f sample.exe -o --format md
+```
+
+Scan with a premium API key (no rate limit):
+
+```bash
+python cli.py -d /path/to/folder --requests-per-minute 0
+```
+
+Scan with a custom rate limit:
+
+```bash
+python cli.py -d /path/to/folder --requests-per-minute 10
 ```
 
 Clear cache only:
