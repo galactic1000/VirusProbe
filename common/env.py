@@ -9,6 +9,7 @@ import dotenv
 
 DOTENV_PATH: Path = Path(__file__).resolve().parents[1] / ".env"
 API_KEY_ENV_VARS: tuple[str, ...] = ("VT_API_KEY", "VIRUSTOTAL_API_KEY")
+RPM_ENV_VAR = "VT_REQUESTS_PER_MINUTE"
 
 
 def get_api_key() -> str | None:
@@ -25,6 +26,20 @@ def save_api_key_to_env(api_key: str) -> None:
         dotenv.unset_key(DOTENV_PATH, name)
     dotenv.set_key(DOTENV_PATH, "VT_API_KEY", api_key, quote_mode="auto")
     os.environ["VT_API_KEY"] = api_key
+
+
+def get_requests_per_minute() -> int | None:
+    dotenv.load_dotenv(DOTENV_PATH, override=False)
+    raw = os.environ.get(RPM_ENV_VAR, "").strip()
+    if raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit()):
+        value = int(raw)
+        return max(0, value)
+    return None
+
+
+def save_requests_per_minute_to_env(rpm: int) -> None:
+    dotenv.set_key(DOTENV_PATH, RPM_ENV_VAR, str(rpm), quote_mode="none")
+    os.environ[RPM_ENV_VAR] = str(rpm)
 
 
 def remove_api_key_from_env() -> bool:
