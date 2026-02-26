@@ -218,7 +218,7 @@ class VirusProbeGUI:
         tree_entries: list[tuple[str, str, str]] = []
         for iid in self.tree.get_children():
             vals = self.tree.item(iid, "values")
-            if not vals:
+            if not vals or vals[2] != "Queued":
                 continue
             item_type, value, _ = vals
             tree_entries.append((iid, item_type, value))
@@ -235,11 +235,13 @@ class VirusProbeGUI:
             return
 
         self._pending_entries = self._collect_pending_entries()
+        if not self._pending_entries:
+            messagebox.showinfo("Nothing to Scan", "All items have already been scanned. Add new items to scan.", parent=self.root)
+            return
         for iid, _, _ in self._pending_entries:
             self._set_row_status(iid, "Scanning...")
 
         self.is_scanning = True
-        self.last_results = []
         self.report_button.configure(state=tk.DISABLED)
         self._set_controls_enabled(False)
         self.progress_var.set("Starting scan...")
@@ -286,7 +288,11 @@ class VirusProbeGUI:
             completed += apply_results(file_entries, scanner.scan_files)
             completed += apply_results(hash_entries, scanner.scan_hashes)
 
-            self.last_results = [r for r in results if r is not None]
+            new_results = [r for r in results if r is not None]
+            result_map = {(r.get("type"), r.get("item")): r for r in self.last_results}
+            for r in new_results:
+                result_map[(r.get("type"), r.get("item"))] = r
+            self.last_results = list(result_map.values())
             if self.last_results:
                 self._safe_after(lambda: self.report_button.configure(state=tk.NORMAL))
             self._safe_after(lambda: self.progress_var.set("Scan complete"))
