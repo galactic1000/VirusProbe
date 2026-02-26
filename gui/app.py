@@ -59,6 +59,7 @@ class VirusProbeGUI:
         self._pending_entries: list[tuple[str, str, str]] = []
         self._current_rpm: int = DEFAULT_REQUESTS_PER_MINUTE
         self._current_workers: int = DEFAULT_SCAN_WORKERS
+        self._cancel_requested = threading.Event()
         self.is_scanning = False
         self._is_closing = False
         self.default_report_dir = str(Path.home())
@@ -159,9 +160,15 @@ class VirusProbeGUI:
         state = tk.NORMAL if enabled else tk.DISABLED
         self.remove_btn.configure(state=state)
         self.clear_btn.configure(state=state)
-        self.scan_btn.configure(state=state)
         self.add_menu_btn.configure(state=state)
         self.advanced_btn.configure(state=state)
+
+    def _set_scanning_ui(self, scanning: bool) -> None:
+        self._set_controls_enabled(not scanning)
+        if scanning:
+            self.scan_btn.configure(state=tk.NORMAL, text="Cancel", command=self._cancel_scan)
+        else:
+            self.scan_btn.configure(state=tk.NORMAL, text="Scan", command=self._scan_items)
 
     def _show_advanced_dialog(self) -> None:
         result = show_advanced_dialog(self.root, int(self.rpm_var.get()), int(self.workers_var.get()))
@@ -297,11 +304,19 @@ class VirusProbeGUI:
             self._current_workers = DEFAULT_SCAN_WORKERS
         save_workers_to_env(self._current_workers)
 
+        self._cancel_requested.clear()
         self.is_scanning = True
         self.report_button.configure(state=tk.DISABLED)
-        self._set_controls_enabled(False)
+        self._set_scanning_ui(True)
         self.progress_var.set("Starting scan...")
         threading.Thread(target=self._scan_worker, daemon=True).start()
+
+    def _cancel_scan(self) -> None:
+        if not self.is_scanning:
+            return
+        self._cancel_requested.set()
+        self.scan_btn.configure(state=tk.DISABLED)
+        self.progress_var.set("Cancelling scan...")
 
     def _safe_after(self, callback, *args) -> None:
         try:
@@ -319,39 +334,51 @@ class VirusProbeGUI:
 
             ordered_entries = self._pending_entries
             total = len(ordered_entries)
-            results: list[dict[str, Any] | None] = [None] * total
             completed = 0
+            new_results: list[dict[str, Any]] = []
 
-            file_entries = [(idx, iid, value) for idx, (iid, item_type, value) in enumerate(ordered_entries) if item_type == "file"]
-            hash_entries = [(idx, iid, value) for idx, (iid, item_type, value) in enumerate(ordered_entries) if item_type == "hash"]
+            entry_by_file: dict[str, str] = {}
+            entry_by_hash: dict[str, str] = {}
+            file_values: list[str] = []
+            hash_values: list[str] = []
+            for iid, item_type, value in ordered_entries:
+                if item_type == "file":
+                    file_values.append(value)
+                    entry_by_file[value] = iid
+                else:
+                    hash_values.append(value)
+                    entry_by_hash[value.strip().lower()] = iid
 
-            def apply_results(
-                entries: list[tuple[int, str, str]],
-                scan_fn,
-            ) -> int:
-                done = 0
-                if not entries:
-                    return done
-                scanned = scan_fn([value for _, _, value in entries])
-                for (idx, iid, _), result in zip(entries, scanned):
-                    results[idx] = result
-                    done += 1
-                    current = completed + done
+            def handle_result(result: dict[str, Any]) -> None:
+                nonlocal completed
+                new_results.append(result)
+                result_type = str(result.get("type", ""))
+                if result_type == "file":
+                    iid = entry_by_file.get(str(result.get("item", "")))
+                else:
+                    iid = entry_by_hash.get(str(result.get("file_hash", "")).lower())
+                if iid is not None:
                     self._safe_after(self._set_row_status, iid, self._result_status(result))
-                    self._safe_after(lambda c=current: self.progress_var.set(f"Scanning {c}/{total}..."))
-                return done
+                completed += 1
+                self._safe_after(lambda c=completed: self.progress_var.set(f"Scanning {c}/{total}..."))
 
-            completed += apply_results(file_entries, scanner.scan_files)
-            completed += apply_results(hash_entries, scanner.scan_hashes)
+            if file_values and not self._cancel_requested.is_set():
+                scanner.scan_files(file_values, on_result=handle_result, cancel_event=self._cancel_requested)
+            if hash_values and not self._cancel_requested.is_set():
+                scanner.scan_hashes(hash_values, on_result=handle_result, cancel_event=self._cancel_requested)
 
-            new_results = [r for r in results if r is not None]
             result_map = {(r.get("type"), r.get("item")): r for r in self.last_results}
             for r in new_results:
                 result_map[(r.get("type"), r.get("item"))] = r
             self.last_results = list(result_map.values())
             if self.last_results:
                 self._safe_after(lambda: self.report_button.configure(state=tk.NORMAL))
-            self._safe_after(lambda: self.progress_var.set("Scan complete"))
+            if self._cancel_requested.is_set():
+                pending_iids = [iid for iid, _, _ in ordered_entries]
+                self._safe_after(self._mark_pending_cancelled, pending_iids)
+                self._safe_after(lambda c=completed, t=total: self.progress_var.set(f"Scan cancelled ({c}/{t})"))
+            else:
+                self._safe_after(lambda: self.progress_var.set("Scan complete"))
         except Exception as exc:
             self._safe_after(lambda: messagebox.showerror("Scan Error", str(exc), parent=self.root))
             self._safe_after(lambda: self.progress_var.set("Scan failed"))
@@ -366,7 +393,13 @@ class VirusProbeGUI:
 
     def _restore_scan_buttons(self) -> None:
         if not self._is_closing:
-            self._set_controls_enabled(True)
+            self._set_scanning_ui(False)
+
+    def _mark_pending_cancelled(self, iids: list[str]) -> None:
+        for iid in iids:
+            vals = self.tree.item(iid, "values")
+            if vals and vals[2] == "Scanning...":
+                self.tree.item(iid, values=(vals[0], vals[1], "Cancelled"))
 
     def _set_row_status(self, iid: str, status: str) -> None:
         vals = self.tree.item(iid, "values")
@@ -416,7 +449,9 @@ class VirusProbeGUI:
     def _on_close(self) -> None:
         if self.is_scanning:
             self._is_closing = True
-            self.progress_var.set("Closing after scan completes...")
+            self._cancel_requested.set()
+            self.scan_btn.configure(state=tk.DISABLED)
+            self.progress_var.set("Cancelling scan before close...")
             return
         if self.scanner is not None:
             self.scanner.close()

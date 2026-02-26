@@ -7,7 +7,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -156,31 +156,62 @@ class ScannerService:
         scan_func: Callable[[str], dict[str, Any]],
         items: Iterable[str],
         on_result: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> list[dict[str, Any]]:
         item_list = list(items)
         if not item_list:
             return []
+        if cancel_event is not None and cancel_event.is_set():
+            return []
         if len(item_list) == 1:
+            if cancel_event is not None and cancel_event.is_set():
+                return []
             result = scan_func(item_list[0])
             if on_result is not None:
                 on_result(result)
             return [result]
         results: list[dict[str, Any] | None] = [None] * len(item_list)
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_idx = {executor.submit(scan_func, item): i for i, item in enumerate(item_list)}
-            for future in as_completed(future_to_idx):
-                idx = future_to_idx[future]
-                result = future.result()
-                results[idx] = result
-                if on_result is not None:
-                    on_result(result)
+            future_to_idx: dict[Any, int] = {}
+            next_idx = 0
+            while next_idx < len(item_list) and len(future_to_idx) < self.max_workers:
+                future = executor.submit(scan_func, item_list[next_idx])
+                future_to_idx[future] = next_idx
+                next_idx += 1
+
+            while future_to_idx:
+                done, _ = wait(tuple(future_to_idx.keys()), return_when=FIRST_COMPLETED)
+                for future in done:
+                    idx = future_to_idx.pop(future)
+                    result = future.result()
+                    results[idx] = result
+                    if on_result is not None:
+                        on_result(result)
+                if cancel_event is not None and cancel_event.is_set():
+                    for future in list(future_to_idx):
+                        future.cancel()
+                    break
+                while next_idx < len(item_list) and len(future_to_idx) < self.max_workers:
+                    future = executor.submit(scan_func, item_list[next_idx])
+                    future_to_idx[future] = next_idx
+                    next_idx += 1
         return [r for r in results if r is not None]
 
-    def scan_files(self, file_paths: Iterable[str], on_result: Callable[[dict[str, Any]], None] | None = None) -> list[dict[str, Any]]:
-        return self._scan_many(self.scan_file, file_paths, on_result=on_result)
+    def scan_files(
+        self,
+        file_paths: Iterable[str],
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        return self._scan_many(self.scan_file, file_paths, on_result=on_result, cancel_event=cancel_event)
 
-    def scan_hashes(self, hashes: Iterable[str], on_result: Callable[[dict[str, Any]], None] | None = None) -> list[dict[str, Any]]:
-        return self._scan_many(self.scan_hash, hashes, on_result=on_result)
+    def scan_hashes(
+        self,
+        hashes: Iterable[str],
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        return self._scan_many(self.scan_hash, hashes, on_result=on_result, cancel_event=cancel_event)
 
     def scan_file(self, file_path: str) -> dict[str, Any]:
         """Scans a file path by hash."""
@@ -241,6 +272,7 @@ class ScannerService:
         directory: str,
         recursive: bool = False,
         on_result: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> list[dict[str, Any]]:
         """Scans files in a directory concurrently."""
         path = Path(directory)
@@ -255,7 +287,7 @@ class ScannerService:
                 on_result(result)
             return [result]
         files = [str(f) for f in (path.rglob("*") if recursive else path.iterdir()) if f.is_file()]
-        return self.scan_files(files, on_result=on_result)
+        return self.scan_files(files, on_result=on_result, cancel_event=cancel_event)
 
     @staticmethod
     def is_sha256(value: str) -> bool:
