@@ -191,13 +191,14 @@ python cli.py --clear-cache
 - After generation, GUI offers `Open Report` and `Open Folder`.
 - `Clear Cache` clears the local SQLite cache.
 
-## API Key Resolution
+## Environment Variables
 
-Resolution order:
-
-1. CLI `--api-key`
-2. Environment variables: `VT_API_KEY`, `VIRUSTOTAL_API_KEY`
-3. Project `.env`
+| Variable | Description | Default |
+|---|---|---|
+| `VT_API_KEY` | VirusTotal API key | — |
+| `VIRUSTOTAL_API_KEY` | Alternative name for the API key (checked second) | — |
+| `VT_REQUESTS_PER_MINUTE` | Max VirusTotal API calls per 60-second window. `0` = unlimited (premium keys). GUI Advanced dialog writes this on Apply. | `4` |
+| `VT_WORKERS` | Concurrent scan threads. Must be `>= 1`. GUI Advanced dialog writes this on Apply. | `4` |
 
 Example `.env`:
 
@@ -207,7 +208,13 @@ VT_REQUESTS_PER_MINUTE=4
 VT_WORKERS=4
 ```
 
-`VT_REQUESTS_PER_MINUTE` and `VT_WORKERS` are written by the GUI when settings are applied via the Advanced dialog. They can also be set manually.
+## API Key Resolution
+
+Resolution order:
+
+1. CLI `--api-key`
+2. Environment variables: `VT_API_KEY`, `VIRUSTOTAL_API_KEY`
+3. Project `.env`
 
 ## Cache
 
