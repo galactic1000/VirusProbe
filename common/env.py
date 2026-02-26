@@ -9,20 +9,12 @@ import dotenv
 
 DOTENV_PATH: Path = Path(__file__).resolve().parents[1] / ".env"
 
-# Checked in order; first non-empty value wins.
 API_KEY_ENV_VARS: tuple[str, ...] = ("VT_API_KEY", "VIRUSTOTAL_API_KEY")
 
-# GUI scan-settings persisted to .env via the Advanced dialog.
-# VT_REQUESTS_PER_MINUTE — VirusTotal API calls allowed per 60-second window.
-#   0 = unlimited (suitable for premium API keys). Default: 4.
 RPM_ENV_VAR = "VT_REQUESTS_PER_MINUTE"
 
-# VT_WORKERS — number of concurrent scan threads.
-#   Must be >= 1. Default: 4.
 WORKERS_ENV_VAR = "VT_WORKERS"
 
-# Load .env once at import time. override=False means existing shell/process
-# environment variables are never overwritten by values from the file.
 dotenv.load_dotenv(DOTENV_PATH, override=False)
 
 
