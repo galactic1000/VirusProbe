@@ -69,22 +69,28 @@ class VirusProbeGUI:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self) -> None:
-        top = ttk.Frame(self.root, padding=10)
+        # ── Top bar ──────────────────────────────────────────────────────────
+        top = ttk.Frame(self.root, padding=(12, 10, 12, 8))
         top.pack(fill=tk.X)
 
-        title = ttk.Label(top, text="VirusProbe", font=_title_font())
-        title.pack(side=tk.LEFT)
-
+        ttk.Label(top, text="VirusProbe", font=_title_font()).pack(side=tk.LEFT)
         self.api_status_var = tk.StringVar(value="API Key: Not Set")
-        ttk.Label(top, textvariable=self.api_status_var).pack(side=tk.LEFT, padx=20)
+        ttk.Label(top, textvariable=self.api_status_var).pack(side=tk.LEFT, padx=(20, 0))
 
-        ttk.Button(top, text="Clear Cache", command=self._clear_cache_dialog).pack(side=tk.RIGHT, padx=(0, 8))
-        ttk.Button(top, text="Set API Key", command=self._set_api_key_dialog).pack(side=tk.RIGHT)
+        ttk.Button(top, text="Clear Cache", command=self._clear_cache_dialog).pack(side=tk.RIGHT)
+        ttk.Button(top, text="Set API Key", command=self._set_api_key_dialog).pack(side=tk.RIGHT, padx=(0, 8))
 
-        controls = ttk.Frame(self.root, padding=(10, 0, 10, 10))
+        ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12)
+
+        # ── Controls bar ─────────────────────────────────────────────────────
+        controls = ttk.Frame(self.root, padding=(12, 8, 12, 8))
         controls.pack(fill=tk.X)
 
-        self.add_menu_btn = ttk.Menubutton(controls, text="Add Item")
+        # Left group: item management
+        left = ttk.Frame(controls)
+        left.pack(side=tk.LEFT, fill=tk.Y)
+
+        self.add_menu_btn = ttk.Menubutton(left, text="Add Item")
         add_menu = tk.Menu(self.add_menu_btn, tearoff=False)
         add_menu.add_command(label="Add File(s)...", command=self._add_files_dialog)
         add_menu.add_command(label="Add SHA-256 hash...", command=self._add_hash_dialog)
@@ -92,24 +98,35 @@ class VirusProbeGUI:
         self.add_menu_btn["menu"] = add_menu
         self.add_menu_btn.pack(side=tk.LEFT)
 
-        self.remove_btn = ttk.Button(controls, text="Remove Selected", command=self._remove_selected)
-        self.remove_btn.pack(side=tk.LEFT, padx=8)
-        self.clear_btn = ttk.Button(controls, text="Clear List", command=self._clear_items)
-        self.clear_btn.pack(side=tk.LEFT)
-        self.scan_btn = ttk.Button(controls, text="Scan", command=self._scan_items)
-        self.scan_btn.pack(side=tk.RIGHT)
+        self.remove_btn = ttk.Button(left, text="Remove Selected", command=self._remove_selected)
+        self.remove_btn.pack(side=tk.LEFT, padx=(8, 0))
+        self.clear_btn = ttk.Button(left, text="Clear List", command=self._clear_items)
+        self.clear_btn.pack(side=tk.LEFT, padx=(8, 0))
 
-        self.rpm_spinbox = ttk.Spinbox(controls, from_=0, to=500, textvariable=self.rpm_var, width=5)
-        self.rpm_spinbox.pack(side=tk.RIGHT, padx=(0, 4))
-        ttk.Label(controls, text="Req/min (0=unlimited):").pack(side=tk.RIGHT)
+        # Right group: scan settings + scan button
+        right = ttk.Frame(controls)
+        right.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.workers_spinbox = ttk.Spinbox(controls, from_=1, to=50, textvariable=self.workers_var, width=4)
-        self.workers_spinbox.pack(side=tk.RIGHT, padx=(0, 4))
-        ttk.Label(controls, text="Workers:").pack(side=tk.RIGHT, padx=(12, 0))
+        ttk.Label(right, text="Workers:").pack(side=tk.LEFT, padx=(0, 4))
+        self.workers_spinbox = ttk.Spinbox(right, from_=1, to=50, textvariable=self.workers_var, width=4)
+        self.workers_spinbox.pack(side=tk.LEFT)
 
-        ttk.Label(controls, text="Drag files into the list or use Add Item.").pack(side=tk.RIGHT, padx=12)
+        ttk.Separator(right, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=(14, 14), pady=2)
 
-        list_frame = ttk.Frame(self.root, padding=(10, 0, 10, 10))
+        ttk.Label(right, text="Req/min:").pack(side=tk.LEFT, padx=(0, 4))
+        self.rpm_spinbox = ttk.Spinbox(right, from_=0, to=500, textvariable=self.rpm_var, width=5)
+        self.rpm_spinbox.pack(side=tk.LEFT)
+        ttk.Label(right, text="(0 = unlimited)").pack(side=tk.LEFT, padx=(4, 0))
+
+        ttk.Separator(right, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=(14, 14), pady=2)
+
+        self.scan_btn = ttk.Button(right, text="Scan", command=self._scan_items, width=8)
+        self.scan_btn.pack(side=tk.LEFT)
+
+        ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12)
+
+        # ── List ─────────────────────────────────────────────────────────────
+        list_frame = ttk.Frame(self.root, padding=(12, 8, 12, 0))
         list_frame.pack(fill=tk.BOTH, expand=True)
 
         columns = ("type", "value", "status")
@@ -119,7 +136,7 @@ class VirusProbeGUI:
         self.tree.heading("status", text="Status")
         self.tree.column("type", width=100, anchor=tk.CENTER, stretch=False)
         self.tree.column("value", width=650, anchor=tk.CENTER)
-        self.tree.column("status", width=180, anchor=tk.CENTER)
+        self.tree.column("status", width=180, anchor=tk.CENTER, stretch=False)
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.tree.yview)
@@ -129,8 +146,12 @@ class VirusProbeGUI:
         self.tree.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
         self.tree.dnd_bind("<<Drop>>", self._on_drop_files)  # type: ignore[attr-defined]
 
-        bottom = ttk.Frame(self.root, padding=(10, 0, 10, 10))
+        ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12, pady=(8, 0))
+
+        # ── Bottom bar ───────────────────────────────────────────────────────
+        bottom = ttk.Frame(self.root, padding=(12, 6, 12, 10))
         bottom.pack(fill=tk.X)
+
         self.report_button = ttk.Button(bottom, text="Generate Report...", command=self._generate_report)
         self.report_button.pack(side=tk.LEFT)
         self.report_button.configure(state=tk.DISABLED)
