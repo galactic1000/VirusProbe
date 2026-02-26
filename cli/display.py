@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+
 from colorama import Fore, Style
 
 from common import build_summary
@@ -9,11 +11,19 @@ from common import build_summary
 TOOL_NAME = "VirusProbe"
 TOOL_VERSION = "1.0"
 TOOL_TAGLINE = "VirusTotal Scanner"
-SEPARATOR_WIDTH = 112
 BANNER_BORDER_CHAR = "#"
 HEADER_BORDER_CHAR = "="
 SECTION_BORDER_CHAR = "-"
 SUBSECTION_BORDER_CHAR = "-"
+
+
+def _default_separator_width() -> int:
+    # Keep output readable on smaller terminals and avoid very wide lines on large monitors.
+    width = shutil.get_terminal_size(fallback=(100, 24)).columns
+    return max(80, min(110, width))
+
+
+SEPARATOR_WIDTH = _default_separator_width()
 
 
 def format_colored(text: str, color: str) -> str:
