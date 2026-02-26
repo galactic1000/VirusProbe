@@ -19,7 +19,7 @@ SUBSECTION_BORDER_CHAR = "-"
 
 def _default_separator_width() -> int:
     # Keep output readable on smaller terminals and avoid very wide lines on large monitors.
-    width = shutil.get_terminal_size(fallback=(100, 24)).columns
+    width = shutil.get_terminal_size(fallback=(95, 24)).columns
     return max(80, min(110, width))
 
 
