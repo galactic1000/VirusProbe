@@ -1,4 +1,4 @@
-﻿# VirusProbe
+# VirusProbe
 
 VirusProbe scans file paths, directories, and SHA-256 hashes with VirusTotal.
 It provides both a CLI and a Tkinter GUI, with local caching to reduce repeat API calls.

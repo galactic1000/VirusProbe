@@ -1,4 +1,4 @@
-﻿"""Core scan service shared by CLI and GUI."""
+"""Core scan service shared by CLI and GUI."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-﻿"""CLI frontend for VirusProbe."""
+"""CLI frontend for VirusProbe."""
 
 from __future__ import annotations
 

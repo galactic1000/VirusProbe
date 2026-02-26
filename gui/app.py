@@ -1,4 +1,4 @@
-﻿"""Tkinter GUI for VirusProbe."""
+"""Tkinter GUI for VirusProbe."""
 
 from __future__ import annotations
 
