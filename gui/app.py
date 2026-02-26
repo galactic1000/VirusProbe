@@ -103,22 +103,14 @@ class VirusProbeGUI:
         self.clear_btn = ttk.Button(left, text="Clear List", command=self._clear_items)
         self.clear_btn.pack(side=tk.LEFT, padx=(8, 0))
 
-        # Right group: scan settings + scan button
+        # Right group: advanced settings + scan button
         right = ttk.Frame(controls)
         right.pack(side=tk.RIGHT, fill=tk.Y)
 
-        ttk.Label(right, text="Workers:").pack(side=tk.LEFT, padx=(0, 4))
-        self.workers_spinbox = ttk.Spinbox(right, from_=1, to=50, textvariable=self.workers_var, width=4)
-        self.workers_spinbox.pack(side=tk.LEFT)
+        self.advanced_btn = ttk.Button(right, text="Advanced...", command=self._show_advanced_dialog)
+        self.advanced_btn.pack(side=tk.LEFT)
 
-        ttk.Separator(right, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=(14, 14), pady=2)
-
-        ttk.Label(right, text="Req/min:").pack(side=tk.LEFT, padx=(0, 4))
-        self.rpm_spinbox = ttk.Spinbox(right, from_=0, to=500, textvariable=self.rpm_var, width=5)
-        self.rpm_spinbox.pack(side=tk.LEFT)
-        ttk.Label(right, text="(0 = unlimited)").pack(side=tk.LEFT, padx=(4, 0))
-
-        ttk.Separator(right, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=(14, 14), pady=2)
+        ttk.Separator(right, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=(12, 12), pady=2)
 
         self.scan_btn = ttk.Button(right, text="Scan", command=self._scan_items, width=8)
         self.scan_btn.pack(side=tk.LEFT)
@@ -165,8 +157,53 @@ class VirusProbeGUI:
         self.clear_btn.configure(state=state)
         self.scan_btn.configure(state=state)
         self.add_menu_btn.configure(state=state)
-        self.rpm_spinbox.configure(state=state)
-        self.workers_spinbox.configure(state=state)
+        self.advanced_btn.configure(state=state)
+
+    def _show_advanced_dialog(self) -> None:
+        dlg = tk.Toplevel(self.root)
+        dlg.title("Advanced Scan Settings")
+        dlg.resizable(False, False)
+        dlg.transient(self.root)
+        dlg.grab_set()
+
+        # Dialog-local copies so Cancel doesn't commit anything
+        rpm_var = tk.StringVar(value=self.rpm_var.get())
+        workers_var = tk.StringVar(value=self.workers_var.get())
+
+        body = ttk.Frame(dlg, padding=(20, 16, 20, 12))
+        body.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(body, text="Workers:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
+        ttk.Spinbox(body, from_=1, to=50, textvariable=workers_var, width=6).grid(row=0, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
+
+        ttk.Label(body, text="Req/min:").grid(row=1, column=0, sticky=tk.W, pady=(0, 4))
+        ttk.Spinbox(body, from_=0, to=500, textvariable=rpm_var, width=6).grid(row=1, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 4))
+        ttk.Label(body, text="0 = unlimited (premium keys)", foreground="gray").grid(
+            row=2, column=0, columnspan=2, sticky=tk.W, pady=(0, 4)
+        )
+
+        ttk.Separator(dlg, orient=tk.HORIZONTAL).pack(fill=tk.X)
+
+        btns = ttk.Frame(dlg, padding=(12, 8))
+        btns.pack(fill=tk.X)
+
+        def _apply() -> None:
+            try:
+                self.workers_var.set(str(max(1, int(workers_var.get()))))
+            except ValueError:
+                pass
+            try:
+                self.rpm_var.set(str(max(0, int(rpm_var.get()))))
+            except ValueError:
+                pass
+            save_workers_to_env(int(self.workers_var.get()))
+            save_requests_per_minute_to_env(int(self.rpm_var.get()))
+            dlg.destroy()
+
+        ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side=tk.RIGHT)
+        ttk.Button(btns, text="Apply", command=_apply).pack(side=tk.RIGHT, padx=(0, 8))
+
+        dlg.wait_window()
 
     def _set_api_key_dialog(self) -> None:
         value = simpledialog.askstring(
