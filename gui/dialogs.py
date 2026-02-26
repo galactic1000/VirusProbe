@@ -292,11 +292,8 @@ def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int) 
     ttk.Label(body, text="Workers:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
     ttk.Spinbox(body, from_=1, to=50, textvariable=workers_var, width=6).grid(row=0, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
 
-    ttk.Label(body, text="Req/min:").grid(row=1, column=0, sticky=tk.W, pady=(0, 4))
-    ttk.Spinbox(body, from_=0, to=500, textvariable=rpm_var, width=6).grid(row=1, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 4))
-    ttk.Label(body, text="0 = unlimited (premium keys)", foreground="gray").grid(
-        row=2, column=0, columnspan=2, sticky=tk.W, pady=(0, 4)
-    )
+    ttk.Label(body, text="Req/min (0 = unlimited):").grid(row=1, column=0, sticky=tk.W, pady=(0, 12))
+    ttk.Spinbox(body, from_=0, to=500, textvariable=rpm_var, width=6).grid(row=1, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 12))
 
     ttk.Separator(dlg, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
