@@ -8,7 +8,7 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -24,7 +24,14 @@ from common import (
     save_workers_to_env,
 )
 from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS
-from .dialogs import show_add_hashes_dialog, show_generate_report_dialog
+from .dialogs import (
+    show_add_hash_dialog,
+    show_add_hashes_dialog,
+    show_advanced_dialog,
+    show_clear_cache_dialog,
+    show_generate_report_dialog,
+    show_set_api_key_dialog,
+)
 
 CACHE_DB = Path(__file__).resolve().parents[1] / "cache" / "vt_cache.db"
 
@@ -160,64 +167,16 @@ class VirusProbeGUI:
         self.advanced_btn.configure(state=state)
 
     def _show_advanced_dialog(self) -> None:
-        dlg = tk.Toplevel(self.root)
-        dlg.title("Advanced Scan Settings")
-        dlg.resizable(False, False)
-        dlg.transient(self.root)
-        dlg.grab_set()
-
-        # Dialog-local copies so Cancel doesn't commit anything
-        rpm_var = tk.StringVar(value=self.rpm_var.get())
-        workers_var = tk.StringVar(value=self.workers_var.get())
-
-        body = ttk.Frame(dlg, padding=(20, 16, 20, 12))
-        body.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(body, text="Workers:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
-        ttk.Spinbox(body, from_=1, to=50, textvariable=workers_var, width=6).grid(row=0, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
-
-        ttk.Label(body, text="Req/min:").grid(row=1, column=0, sticky=tk.W, pady=(0, 4))
-        ttk.Spinbox(body, from_=0, to=500, textvariable=rpm_var, width=6).grid(row=1, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 4))
-        ttk.Label(body, text="0 = unlimited (premium keys)", foreground="gray").grid(
-            row=2, column=0, columnspan=2, sticky=tk.W, pady=(0, 4)
-        )
-
-        ttk.Separator(dlg, orient=tk.HORIZONTAL).pack(fill=tk.X)
-
-        btns = ttk.Frame(dlg, padding=(12, 8))
-        btns.pack(fill=tk.X)
-
-        def _apply() -> None:
-            try:
-                self.workers_var.set(str(max(1, int(workers_var.get()))))
-            except ValueError:
-                pass
-            try:
-                self.rpm_var.set(str(max(0, int(rpm_var.get()))))
-            except ValueError:
-                pass
-            save_workers_to_env(int(self.workers_var.get()))
-            save_requests_per_minute_to_env(int(self.rpm_var.get()))
-            dlg.destroy()
-
-        ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side=tk.RIGHT)
-        ttk.Button(btns, text="Apply", command=_apply).pack(side=tk.RIGHT, padx=(0, 8))
-
-        dlg.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() - dlg.winfo_width()) // 2
-        y = self.root.winfo_y() + (self.root.winfo_height() - dlg.winfo_height()) // 2
-        dlg.geometry(f"+{x}+{y}")
-
-        dlg.wait_window()
+        result = show_advanced_dialog(self.root, int(self.rpm_var.get()), int(self.workers_var.get()))
+        if result is not None:
+            rpm, workers = result
+            self.rpm_var.set(str(rpm))
+            self.workers_var.set(str(workers))
+            save_requests_per_minute_to_env(rpm)
+            save_workers_to_env(workers)
 
     def _set_api_key_dialog(self) -> None:
-        value = simpledialog.askstring(
-            "VirusTotal API Key",
-            "Enter API key:",
-            initialvalue=self.api_key or "",
-            show="*",
-            parent=self.root,
-        )
+        value = show_set_api_key_dialog(self.root, self.api_key)
         if value is None:
             return
         self.api_key = value.strip() or None
@@ -228,18 +187,18 @@ class VirusProbeGUI:
         self._update_api_key_status()
 
     def _clear_cache_dialog(self) -> None:
-        if not messagebox.askyesno("Clear Cache", "Clear local SQLite cache now?", parent=self.root):
-            return
-        try:
+        def _do_clear() -> int:
             service = self.scanner or ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB)
-            deleted = service.clear_cache()
+            try:
+                return service.clear_cache()
+            finally:
+                if self.scanner is None:
+                    service.close()
+
+        deleted = show_clear_cache_dialog(self.root, _do_clear)
+        if deleted is not None:
             label = f"{deleted} entr{'y' if deleted == 1 else 'ies'}"
             self.progress_var.set(f"Cache cleared ({label})")
-            messagebox.showinfo("Cache Cleared", f"Cleared SQLite cache ({label}).", parent=self.root)
-            if self.scanner is None:
-                service.close()
-        except Exception as exc:
-            messagebox.showerror("Cache Error", str(exc), parent=self.root)
 
     def _update_api_key_status(self) -> None:
         if self.api_key:
@@ -253,14 +212,9 @@ class VirusProbeGUI:
             self._add_item("file", str(path))
 
     def _add_hash_dialog(self) -> None:
-        raw = simpledialog.askstring("Add SHA-256 hash", "Enter SHA-256 hash (64 hex chars):", parent=self.root)
-        if raw is None:
-            return
-        value = raw.strip()
-        if not ScannerService.is_sha256(value):
-            messagebox.showerror("Invalid hash", "Hash must be exactly 64 hexadecimal characters.", parent=self.root)
-            return
-        self._add_item("hash", value.lower())
+        value = show_add_hash_dialog(self.root)
+        if value is not None:
+            self._add_item("hash", value)
 
     def _add_multiple_hashes_dialog(self) -> None:
         show_add_hashes_dialog(self.root, self._add_item)

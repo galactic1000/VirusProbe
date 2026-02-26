@@ -5,7 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Callable
 
 from common import ScannerService, write_report
@@ -235,3 +235,93 @@ def show_report_saved_dialog(
     x = parent.winfo_rootx() + (parent.winfo_width() - dialog.winfo_width()) // 2
     y = parent.winfo_rooty() + (parent.winfo_height() - dialog.winfo_height()) // 2
     dialog.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
+
+def show_set_api_key_dialog(parent: tk.Tk, current_key: str | None) -> str | None:
+    """Prompts for an API key. Returns the entered string, or None if cancelled."""
+    return simpledialog.askstring(
+        "VirusTotal API Key",
+        "Enter API key:",
+        initialvalue=current_key or "",
+        show="*",
+        parent=parent,
+    )
+
+
+def show_clear_cache_dialog(parent: tk.Tk, clear_fn: Callable[[], int]) -> int | None:
+    """Confirms then calls clear_fn(). Returns deleted count, or None if cancelled/failed."""
+    if not messagebox.askyesno("Clear Cache", "Clear local SQLite cache now?", parent=parent):
+        return None
+    try:
+        deleted = clear_fn()
+        label = f"{deleted} entr{'y' if deleted == 1 else 'ies'}"
+        messagebox.showinfo("Cache Cleared", f"Cleared SQLite cache ({label}).", parent=parent)
+        return deleted
+    except Exception as exc:
+        messagebox.showerror("Cache Error", str(exc), parent=parent)
+        return None
+
+
+def show_add_hash_dialog(parent: tk.Tk) -> str | None:
+    """Prompts for a single SHA-256 hash. Returns validated lowercase hash, or None."""
+    raw = simpledialog.askstring("Add SHA-256 hash", "Enter SHA-256 hash (64 hex chars):", parent=parent)
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not ScannerService.is_sha256(value):
+        messagebox.showerror("Invalid hash", "Hash must be exactly 64 hexadecimal characters.", parent=parent)
+        return None
+    return value.lower()
+
+
+def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int) -> tuple[int, int] | None:
+    """Shows Advanced Scan Settings. Returns (rpm, workers) on Apply, None on Cancel."""
+    dlg = tk.Toplevel(parent)
+    dlg.title("Advanced Scan Settings")
+    dlg.resizable(False, False)
+    dlg.transient(parent)
+    dlg.grab_set()
+
+    rpm_var = tk.StringVar(value=str(current_rpm))
+    workers_var = tk.StringVar(value=str(current_workers))
+    result: dict[str, tuple[int, int]] = {}
+
+    body = ttk.Frame(dlg, padding=(20, 16, 20, 12))
+    body.pack(fill=tk.BOTH, expand=True)
+
+    ttk.Label(body, text="Workers:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
+    ttk.Spinbox(body, from_=1, to=50, textvariable=workers_var, width=6).grid(row=0, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
+
+    ttk.Label(body, text="Req/min:").grid(row=1, column=0, sticky=tk.W, pady=(0, 4))
+    ttk.Spinbox(body, from_=0, to=500, textvariable=rpm_var, width=6).grid(row=1, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 4))
+    ttk.Label(body, text="0 = unlimited (premium keys)", foreground="gray").grid(
+        row=2, column=0, columnspan=2, sticky=tk.W, pady=(0, 4)
+    )
+
+    ttk.Separator(dlg, orient=tk.HORIZONTAL).pack(fill=tk.X)
+
+    btns = ttk.Frame(dlg, padding=(12, 8))
+    btns.pack(fill=tk.X)
+
+    def _apply() -> None:
+        try:
+            workers = max(1, int(workers_var.get()))
+        except ValueError:
+            workers = current_workers
+        try:
+            rpm = max(0, int(rpm_var.get()))
+        except ValueError:
+            rpm = current_rpm
+        result["values"] = (rpm, workers)
+        dlg.destroy()
+
+    ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side=tk.RIGHT)
+    ttk.Button(btns, text="Apply", command=_apply).pack(side=tk.RIGHT, padx=(0, 8))
+
+    dlg.update_idletasks()
+    x = parent.winfo_rootx() + (parent.winfo_width() - dlg.winfo_width()) // 2
+    y = parent.winfo_rooty() + (parent.winfo_height() - dlg.winfo_height()) // 2
+    dlg.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
+    dlg.wait_window()
+    return result.get("values")
