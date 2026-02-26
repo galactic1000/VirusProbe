@@ -8,13 +8,25 @@ from pathlib import Path
 import dotenv
 
 DOTENV_PATH: Path = Path(__file__).resolve().parents[1] / ".env"
+
+# Checked in order; first non-empty value wins.
 API_KEY_ENV_VARS: tuple[str, ...] = ("VT_API_KEY", "VIRUSTOTAL_API_KEY")
+
+# GUI scan-settings persisted to .env via the Advanced dialog.
+# VT_REQUESTS_PER_MINUTE — VirusTotal API calls allowed per 60-second window.
+#   0 = unlimited (suitable for premium API keys). Default: 4.
 RPM_ENV_VAR = "VT_REQUESTS_PER_MINUTE"
+
+# VT_WORKERS — number of concurrent scan threads.
+#   Must be >= 1. Default: 4.
 WORKERS_ENV_VAR = "VT_WORKERS"
+
+# Load .env once at import time. override=False means existing shell/process
+# environment variables are never overwritten by values from the file.
+dotenv.load_dotenv(DOTENV_PATH, override=False)
 
 
 def get_api_key() -> str | None:
-    dotenv.load_dotenv(DOTENV_PATH, override=False)
     for var_name in API_KEY_ENV_VARS:
         value = os.environ.get(var_name, "").strip()
         if value:
@@ -30,11 +42,9 @@ def save_api_key_to_env(api_key: str) -> None:
 
 
 def get_requests_per_minute() -> int | None:
-    dotenv.load_dotenv(DOTENV_PATH, override=False)
     raw = os.environ.get(RPM_ENV_VAR, "").strip()
     if raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit()):
-        value = int(raw)
-        return max(0, value)
+        return max(0, int(raw))
     return None
 
 
@@ -44,7 +54,6 @@ def save_requests_per_minute_to_env(rpm: int) -> None:
 
 
 def get_workers() -> int | None:
-    dotenv.load_dotenv(DOTENV_PATH, override=False)
     raw = os.environ.get(WORKERS_ENV_VAR, "").strip()
     if raw.isdigit() and int(raw) >= 1:
         return int(raw)
