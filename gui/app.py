@@ -17,11 +17,13 @@ from common import (
     ScannerService,
     get_api_key,
     get_requests_per_minute,
+    get_workers,
     remove_api_key_from_env,
     save_api_key_to_env,
     save_requests_per_minute_to_env,
+    save_workers_to_env,
 )
-from common.service import DEFAULT_REQUESTS_PER_MINUTE
+from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS
 from .dialogs import show_add_hashes_dialog, show_generate_report_dialog
 
 CACHE_DB = Path(__file__).resolve().parents[1] / "cache" / "vt_cache.db"
@@ -49,6 +51,7 @@ class VirusProbeGUI:
         self.last_results: list[dict[str, Any]] = []
         self._pending_entries: list[tuple[str, str, str]] = []
         self._current_rpm: int = DEFAULT_REQUESTS_PER_MINUTE
+        self._current_workers: int = DEFAULT_SCAN_WORKERS
         self.is_scanning = False
         self._is_closing = False
         self.default_report_dir = str(Path.home())
@@ -56,6 +59,10 @@ class VirusProbeGUI:
         saved_rpm = get_requests_per_minute()
         initial_rpm = saved_rpm if saved_rpm is not None else DEFAULT_REQUESTS_PER_MINUTE
         self.rpm_var = tk.StringVar(value=str(initial_rpm))
+
+        saved_workers = get_workers()
+        initial_workers = saved_workers if saved_workers is not None else DEFAULT_SCAN_WORKERS
+        self.workers_var = tk.StringVar(value=str(initial_workers))
 
         self._build_ui()
         self._update_api_key_status()
@@ -96,6 +103,10 @@ class VirusProbeGUI:
         self.rpm_spinbox.pack(side=tk.RIGHT, padx=(0, 4))
         ttk.Label(controls, text="Req/min (0=unlimited):").pack(side=tk.RIGHT)
 
+        self.workers_spinbox = ttk.Spinbox(controls, from_=1, to=50, textvariable=self.workers_var, width=4)
+        self.workers_spinbox.pack(side=tk.RIGHT, padx=(0, 4))
+        ttk.Label(controls, text="Workers:").pack(side=tk.RIGHT, padx=(12, 0))
+
         ttk.Label(controls, text="Drag files into the list or use Add Item.").pack(side=tk.RIGHT, padx=12)
 
         list_frame = ttk.Frame(self.root, padding=(10, 0, 10, 10))
@@ -134,6 +145,7 @@ class VirusProbeGUI:
         self.scan_btn.configure(state=state)
         self.add_menu_btn.configure(state=state)
         self.rpm_spinbox.configure(state=state)
+        self.workers_spinbox.configure(state=state)
 
     def _set_api_key_dialog(self) -> None:
         value = simpledialog.askstring(
@@ -265,6 +277,12 @@ class VirusProbeGUI:
             self._current_rpm = DEFAULT_REQUESTS_PER_MINUTE
         save_requests_per_minute_to_env(self._current_rpm)
 
+        try:
+            self._current_workers = max(1, int(self.workers_var.get()))
+        except ValueError:
+            self._current_workers = DEFAULT_SCAN_WORKERS
+        save_workers_to_env(self._current_workers)
+
         self.is_scanning = True
         self.report_button.configure(state=tk.DISABLED)
         self._set_controls_enabled(False)
@@ -281,7 +299,7 @@ class VirusProbeGUI:
     def _scan_worker(self) -> None:
         scanner: ScannerService | None = None
         try:
-            scanner = ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB, requests_per_minute=self._current_rpm)
+            scanner = ScannerService(api_key=self.api_key or "", cache_db=CACHE_DB, requests_per_minute=self._current_rpm, max_workers=self._current_workers)
             self.scanner = scanner
             scanner.init_cache()
 
