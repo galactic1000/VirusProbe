@@ -12,14 +12,12 @@ from colorama import Fore, init
 from common import ScannerService, get_api_key, remove_api_key_from_env, save_api_key_to_env, write_report
 from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS
 from .display import (
-    BANNER_BORDER_CHAR,
     SEPARATOR_WIDTH,
     TOOL_VERSION,
-    _line,
     format_colored,
     print_banner,
+    print_input_warnings,
     print_result,
-    print_run_context,
     print_scan_summary,
 )
 
@@ -95,17 +93,18 @@ def _handle_admin_actions(
     return has_admin_action
 
 
-def _filter_existing_files(files: list[str]) -> list[str]:
+def _filter_existing_files(files: list[str]) -> tuple[list[str], list[str]]:
     valid_files: list[str] = []
+    warnings: list[str] = []
     for file_path in files:
         path_obj = Path(file_path)
         if not path_obj.exists():
-            print(format_colored(f"Skipping missing file: {file_path}", Fore.RED))
+            warnings.append(f"Skipping missing file: {file_path}")
         elif not path_obj.is_file():
-            print(format_colored(f"Skipping non-file path: {file_path}", Fore.RED))
+            warnings.append(f"Skipping non-file path: {file_path}")
         else:
             valid_files.append(file_path)
-    return valid_files
+    return valid_files, warnings
 
 
 def main() -> None:
@@ -140,7 +139,6 @@ def main() -> None:
         parser.error("VirusTotal API key is required. Set VT_API_KEY or VIRUSTOTAL_API_KEY (env or .env file).")
 
     print_banner()
-    print_run_context(f"RUN CONTEXT: {'Directory Scan' if args.directory else 'Item Scan'}", Fore.CYAN)
     if args.requests_per_minute > 0 and args.workers > args.requests_per_minute:
         print(format_colored(
             f"Note: {args.workers} workers but only {args.requests_per_minute} requests/min -- "
@@ -158,7 +156,12 @@ def main() -> None:
         _dir_valid = _dp.exists() and _dp.is_dir()
         if _dir_valid:
             dir_files = [str(f) for f in (_dp.rglob("*") if args.recursive else _dp.iterdir()) if f.is_file()]
-    file_list = _filter_existing_files(args.files) if args.files else []
+    file_list: list[str] = []
+    input_warnings: list[str] = []
+    if args.files:
+        file_list, input_warnings = _filter_existing_files(args.files)
+        if input_warnings:
+            print_input_warnings(input_warnings)
     hash_list = args.hashes or []
     total = len(dir_files) + len(file_list) + len(hash_list)
     if args.directory and not _dir_valid:
@@ -184,8 +187,6 @@ def main() -> None:
         if not results:
             return
 
-        print()
-        print(_line(BANNER_BORDER_CHAR))
         print_scan_summary(results)
         if args.output:
             write_report(results, args.output, report_format, separator_width=SEPARATOR_WIDTH)

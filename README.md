@@ -90,6 +90,7 @@ python cli.py [options]
 - `--directory` can be combined with `--hash`.
 - `--recursive` is valid only with `--directory`.
 - At least one scan input is required: `--directory`, `--file`, or `--hash`.
+- Invalid file inputs are grouped under `INPUT WARNINGS` and skipped.
 
 ### Options
 

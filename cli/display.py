@@ -9,11 +9,11 @@ from common import build_summary
 TOOL_NAME = "VirusProbe"
 TOOL_VERSION = "1.0"
 TOOL_TAGLINE = "VirusTotal Scanner"
-SEPARATOR_WIDTH = 96
+SEPARATOR_WIDTH = 112
 BANNER_BORDER_CHAR = "#"
 HEADER_BORDER_CHAR = "="
 SECTION_BORDER_CHAR = "-"
-SUBSECTION_BORDER_CHAR = "."
+SUBSECTION_BORDER_CHAR = "-"
 
 
 def format_colored(text: str, color: str) -> str:
@@ -56,23 +56,27 @@ def print_subsection(title: str, color: str = Fore.CYAN, leading_newline: bool =
     print(_line(SUBSECTION_BORDER_CHAR))
 
 
+def print_input_warnings(warnings: list[str]) -> None:
+    if not warnings:
+        return
+    print_header("INPUT WARNINGS", Fore.YELLOW)
+    for warning in warnings:
+        print(format_colored(f"  - {warning}", Fore.YELLOW))
+
+
 def print_banner() -> None:
     inner_width = max(SEPARATOR_WIDTH - 4, 0)
     title = _center_text(f"{TOOL_NAME} v{TOOL_VERSION}", inner_width)
     tagline = _center_text(f"[ {TOOL_TAGLINE} ]", inner_width)
-    print("\n" + _hash_frame_line())
+    print()
     print(_hash_frame_line())
     print(format_colored(f"##{title}##", Fore.CYAN))
     print(format_colored(f"##{tagline}##", Fore.WHITE))
     print(_hash_frame_line())
-    print(_hash_frame_line() + "\n")
 
 
 def print_run_context(title: str, color: str = Fore.CYAN) -> None:
-    print()
-    print(_hash_frame_line())
-    print(format_colored(title, color))
-    print(_hash_frame_line())
+    print_header(title, color)
 
 
 def _verdict_color(threat_level: str) -> str:
@@ -90,7 +94,7 @@ def print_result(result: dict, index: int | None = None, total: int | None = Non
     if index is not None and total is not None:
         print_header(f"ITEM {index}/{total} - {scan_type}", Fore.BLUE)
     else:
-        print_section(scan_type, Fore.BLUE)
+        print_header(scan_type, Fore.BLUE)
     if result.get("type") == "file":
         print(f"Path: {result.get('item', '')}")
         if result.get("file_hash"):
@@ -129,10 +133,10 @@ def print_scan_summary(results: list[dict]) -> None:
     suspicious_items = [r for r in results if r.get("threat_level") == "Suspicious"]
     malicious_items = [r for r in results if r.get("threat_level") == "Malicious"]
 
-    print("\n")
-    print(_line(BANNER_BORDER_CHAR))
+    print()
+    print(_line(HEADER_BORDER_CHAR))
     print(format_colored("FINAL SCAN SUMMARY", Fore.CYAN))
-    print(_line(BANNER_BORDER_CHAR))
+    print(_line(HEADER_BORDER_CHAR))
     parts = [
         f"Total: {summary['total']}",
         format_colored(f"Malicious: {summary['malicious']}", Fore.RED),
@@ -164,5 +168,4 @@ def print_scan_summary(results: list[dict]) -> None:
             print(f"  - {item.get('item', '')} ({item.get('message', 'Unknown error')})")
 
     print()
-    print(_line(BANNER_BORDER_CHAR))
-    print()
+    print(HEADER_BORDER_CHAR * SEPARATOR_WIDTH + "\n")

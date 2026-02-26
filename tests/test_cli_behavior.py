@@ -87,8 +87,12 @@ def test_filter_existing_files_returns_only_real_files(tmp_path) -> None:
     folder = tmp_path / "folder"
     folder.mkdir()
 
-    result = cli_app._filter_existing_files([str(good), str(missing), str(folder)])
-    assert result == [str(good)]
+    valid, warnings = cli_app._filter_existing_files([str(good), str(missing), str(folder)])
+    assert valid == [str(good)]
+    assert warnings == [
+        f"Skipping missing file: {missing}",
+        f"Skipping non-file path: {folder}",
+    ]
 
 
 def test_main_exits_1_when_error_results(monkeypatch) -> None:
@@ -99,7 +103,6 @@ def test_main_exits_1_when_error_results(monkeypatch) -> None:
     monkeypatch.setattr(cli_app, "ScannerService", ErrorService)
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
     monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_run_context", lambda *a, **kw: None)
     monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
     monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
 
@@ -116,7 +119,6 @@ def test_main_exits_0_when_malicious_results(monkeypatch) -> None:
     monkeypatch.setattr(cli_app, "ScannerService", MaliciousService)
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
     monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_run_context", lambda *a, **kw: None)
     monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
     monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
 
