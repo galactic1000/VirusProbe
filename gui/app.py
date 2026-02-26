@@ -1,4 +1,4 @@
-"""Tkinter GUI for VirusProbe."""
+﻿"""Tkinter GUI for VirusProbe."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ class VirusProbeGUI:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_ui(self) -> None:
-        # ── Top bar ──────────────────────────────────────────────────────────
+        # Top bar
         top = ttk.Frame(self.root, padding=(12, 10, 12, 8))
         top.pack(fill=tk.X)
 
@@ -88,8 +88,7 @@ class VirusProbeGUI:
         ttk.Button(top, text="Set API Key", command=self._set_api_key_dialog).pack(side=tk.RIGHT, padx=(0, 8))
 
         ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12)
-
-        # ── Controls bar ─────────────────────────────────────────────────────
+        # Controls bar
         controls = ttk.Frame(self.root, padding=(12, 8, 12, 8))
         controls.pack(fill=tk.X)
 
@@ -123,8 +122,7 @@ class VirusProbeGUI:
         self.scan_btn.pack(side=tk.LEFT)
 
         ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12)
-
-        # ── List ─────────────────────────────────────────────────────────────
+        # List
         list_frame = ttk.Frame(self.root, padding=(12, 8, 12, 0))
         list_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -146,8 +144,7 @@ class VirusProbeGUI:
         self.tree.dnd_bind("<<Drop>>", self._on_drop_files)  # type: ignore[attr-defined]
 
         ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12, pady=(8, 0))
-
-        # ── Bottom bar ───────────────────────────────────────────────────────
+        # Bottom bar
         bottom = ttk.Frame(self.root, padding=(12, 6, 12, 10))
         bottom.pack(fill=tk.X)
 
@@ -435,3 +432,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

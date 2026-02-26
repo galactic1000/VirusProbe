@@ -1,4 +1,4 @@
-# VirusProbe
+﻿# VirusProbe
 
 VirusProbe scans file paths, directories, and SHA-256 hashes with VirusTotal.
 It provides both a CLI and a Tkinter GUI, with local caching to reduce repeat API calls.
@@ -182,7 +182,7 @@ python cli.py --clear-cache
 - Drag-and-drop accepts files.
 - Duplicate queued items are skipped.
 - `Advanced...` opens the Advanced Scan Settings dialog:
-  - **Workers**: concurrent scan threads (default: `4`, range: `1`–`50`)
+  - **Workers**: concurrent scan threads (default: `4`, range: `1`-`50`)
   - **Req/min**: VirusTotal API rate limit (default: `4`, `0` = unlimited for premium keys)
   - Settings are saved to `.env` on Apply and restored on next launch.
 - `Scan` runs all queued items.
@@ -195,8 +195,8 @@ python cli.py --clear-cache
 
 | Variable | Description | Default |
 |---|---|---|
-| `VT_API_KEY` | VirusTotal API key | — |
-| `VIRUSTOTAL_API_KEY` | Alternative name for the API key (checked second) | — |
+| `VT_API_KEY` | VirusTotal API key | - |
+| `VIRUSTOTAL_API_KEY` | Alternative name for the API key (checked second) | - |
 | `VT_REQUESTS_PER_MINUTE` | Max VirusTotal API calls per 60-second window. `0` = unlimited (premium keys). GUI Advanced dialog writes this on Apply. | `4` |
 | `VT_WORKERS` | Concurrent scan threads. Must be `>= 1`. GUI Advanced dialog writes this on Apply. | `4` |
 
@@ -272,6 +272,8 @@ Run all tests:
 pytest -q
 ```
 
+`pytest.ini` is included, so running from repo root works without manually setting `PYTHONPATH`.
+
 Run one module:
 
 ```bash
@@ -319,3 +321,4 @@ VirusProbe/
 |-- requirements-test.txt
 `-- README.md
 ```
+

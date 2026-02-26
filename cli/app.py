@@ -1,4 +1,4 @@
-"""CLI frontend for VirusProbe."""
+﻿"""CLI frontend for VirusProbe."""
 
 from __future__ import annotations
 
@@ -143,7 +143,7 @@ def main() -> None:
     print_run_context(f"RUN CONTEXT: {'Directory Scan' if args.directory else 'Item Scan'}", Fore.CYAN)
     if args.requests_per_minute > 0 and args.workers > args.requests_per_minute:
         print(format_colored(
-            f"Note: {args.workers} workers but only {args.requests_per_minute} requests/min — "
+            f"Note: {args.workers} workers but only {args.requests_per_minute} requests/min -- "
             f"extra workers will idle waiting for API slots. Consider --workers {args.requests_per_minute}.",
             Fore.YELLOW,
         ))
@@ -199,3 +199,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
