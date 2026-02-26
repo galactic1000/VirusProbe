@@ -41,7 +41,7 @@ def get_requests_per_minute() -> int | None:
 
 
 def save_requests_per_minute_to_env(rpm: int) -> None:
-    dotenv.set_key(DOTENV_PATH, RPM_ENV_VAR, str(rpm), quote_mode="none")
+    dotenv.set_key(DOTENV_PATH, RPM_ENV_VAR, str(rpm), quote_mode="never")
     os.environ[RPM_ENV_VAR] = str(rpm)
 
 
@@ -53,7 +53,7 @@ def get_workers() -> int | None:
 
 
 def save_workers_to_env(workers: int) -> None:
-    dotenv.set_key(DOTENV_PATH, WORKERS_ENV_VAR, str(workers), quote_mode="none")
+    dotenv.set_key(DOTENV_PATH, WORKERS_ENV_VAR, str(workers), quote_mode="never")
     os.environ[WORKERS_ENV_VAR] = str(workers)
 
 

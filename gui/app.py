@@ -63,6 +63,7 @@ class VirusProbeGUI:
         self.is_scanning = False
         self._is_closing = False
         self.default_report_dir = str(Path.home())
+        self._scan_total = 0
 
         saved_rpm = get_requests_per_minute()
         initial_rpm = saved_rpm if saved_rpm is not None else DEFAULT_REQUESTS_PER_MINUTE
@@ -155,6 +156,9 @@ class VirusProbeGUI:
 
         self.progress_var = tk.StringVar(value="Ready")
         ttk.Label(bottom, textvariable=self.progress_var).pack(side=tk.RIGHT)
+
+        self.progress_bar = ttk.Progressbar(bottom, orient=tk.HORIZONTAL, mode="determinate", length=260, maximum=1, value=0)
+        self.progress_bar.pack(side=tk.RIGHT, padx=(0, 8))
 
     def _set_controls_enabled(self, enabled: bool) -> None:
         state = tk.NORMAL if enabled else tk.DISABLED
@@ -252,6 +256,8 @@ class VirusProbeGUI:
         self.items.clear()
         self.item_keys.clear()
         self.last_results = []
+        self._scan_total = 0
+        self._set_progress(0, 0)
         self.report_button.configure(state=tk.DISABLED)
         self.progress_var.set("Ready")
 
@@ -289,6 +295,8 @@ class VirusProbeGUI:
         if not self._pending_entries:
             messagebox.showinfo("Nothing to Scan", "All items have already been scanned. Add new items to scan.", parent=self.root)
             return
+        self._scan_total = len(self._pending_entries)
+        self._set_progress(0, self._scan_total)
         for iid, _, _ in self._pending_entries:
             self._set_row_status(iid, "Scanning...")
 
@@ -296,13 +304,11 @@ class VirusProbeGUI:
             self._current_rpm = max(0, int(self.rpm_var.get()))
         except ValueError:
             self._current_rpm = DEFAULT_REQUESTS_PER_MINUTE
-        save_requests_per_minute_to_env(self._current_rpm)
 
         try:
             self._current_workers = max(1, int(self.workers_var.get()))
         except ValueError:
             self._current_workers = DEFAULT_SCAN_WORKERS
-        save_workers_to_env(self._current_workers)
 
         self._cancel_requested.clear()
         self.is_scanning = True
@@ -361,6 +367,7 @@ class VirusProbeGUI:
                     self._safe_after(self._set_row_status, iid, self._result_status(result))
                 completed += 1
                 self._safe_after(lambda c=completed: self.progress_var.set(f"Scanning {c}/{total}..."))
+                self._safe_after(self._set_progress, completed, total)
 
             if file_values and not self._cancel_requested.is_set():
                 scanner.scan_files(file_values, on_result=handle_result, cancel_event=self._cancel_requested)
@@ -377,8 +384,10 @@ class VirusProbeGUI:
                 pending_iids = [iid for iid, _, _ in ordered_entries]
                 self._safe_after(self._mark_pending_cancelled, pending_iids)
                 self._safe_after(lambda c=completed, t=total: self.progress_var.set(f"Scan cancelled ({c}/{t})"))
+                self._safe_after(self._set_progress, completed, total)
             else:
                 self._safe_after(lambda: self.progress_var.set("Scan complete"))
+                self._safe_after(self._set_progress, total, total)
         except Exception as exc:
             self._safe_after(lambda: messagebox.showerror("Scan Error", str(exc), parent=self.root))
             self._safe_after(lambda: self.progress_var.set("Scan failed"))
@@ -400,6 +409,12 @@ class VirusProbeGUI:
             vals = self.tree.item(iid, "values")
             if vals and vals[2] == "Scanning...":
                 self.tree.item(iid, values=(vals[0], vals[1], "Cancelled"))
+
+    def _set_progress(self, completed: int, total: int) -> None:
+        if total <= 0:
+            self.progress_bar.configure(maximum=1, value=0)
+            return
+        self.progress_bar.configure(maximum=total, value=min(completed, total))
 
     def _set_row_status(self, iid: str, status: str) -> None:
         vals = self.tree.item(iid, "values")

@@ -187,6 +187,7 @@ python cli.py --clear-cache
   - Settings are saved to `.env` on Apply and restored on next launch.
 - `Scan` runs all queued items.
 - During an active scan, `Scan` changes to `Cancel` so you can stop remaining queued work.
+- Bottom-right progress bar tracks completed items for the current scan.
 - `Generate Report...` is enabled after the first completed scan.
 - Report dialog supports report name, format, and destination folder.
 - After generation, GUI offers `Open Report` and `Open Folder`.
