@@ -99,6 +99,15 @@ def _verdict_color(threat_level: str) -> str:
     return Fore.GREEN
 
 
+def _item_label(result: dict) -> str:
+    item = str(result.get("item", ""))
+    if result.get("type") == "file":
+        return f"File path: {item}"
+    if result.get("type") == "hash":
+        return f"SHA-256 hash: {result.get('file_hash', item)}"
+    return item
+
+
 def print_result(result: dict, index: int | None = None, total: int | None = None) -> None:
     scan_type = "SHA-256 HASH SCAN" if result.get("type") == "hash" else "FILE SCAN"
     if index is not None and total is not None:
@@ -106,7 +115,7 @@ def print_result(result: dict, index: int | None = None, total: int | None = Non
     else:
         print_header(scan_type, Fore.BLUE)
     if result.get("type") == "file":
-        print(f"Path: {result.get('item', '')}")
+        print(f"File path: {result.get('item', '')}")
         if result.get("file_hash"):
             print(f"SHA-256 hash: {result['file_hash']}")
     else:
@@ -163,19 +172,19 @@ def print_scan_summary(results: list[dict]) -> None:
     if malicious_items:
         print_subsection("MALICIOUS ITEMS", Fore.RED, leading_newline=False)
         for item in malicious_items:
-            print(f"  - {item.get('item', '')} ({item.get('malicious', 0)} detections)")
+            print(f"  - {_item_label(item)} ({item.get('malicious', 0)} detections)")
     if suspicious_items:
         print_subsection("SUSPICIOUS ITEMS", Fore.YELLOW, leading_newline=False)
         for item in suspicious_items:
-            print(f"  - {item.get('item', '')} ({item.get('malicious', 0)} detections)")
+            print(f"  - {_item_label(item)} ({item.get('malicious', 0)} detections)")
     if undetected_items:
         print_subsection("UNDETECTED ITEMS", Fore.CYAN, leading_newline=False)
         for item in undetected_items:
-            print(f"  - {item.get('item', '')} (No VirusTotal record found)")
+            print(f"  - {_item_label(item)} (No VirusTotal record found)")
     if error_items:
         print_subsection("ERRORS", Fore.RED, leading_newline=False)
         for item in error_items:
-            print(f"  - {item.get('item', '')} ({item.get('message', 'Unknown error')})")
+            print(f"  - {_item_label(item)} ({item.get('message', 'Unknown error')})")
 
     print()
     print(HEADER_BORDER_CHAR * SEPARATOR_WIDTH + "\n")
