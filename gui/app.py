@@ -203,6 +203,11 @@ class VirusProbeGUI:
         ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side=tk.RIGHT)
         ttk.Button(btns, text="Apply", command=_apply).pack(side=tk.RIGHT, padx=(0, 8))
 
+        dlg.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dlg.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dlg.winfo_height()) // 2
+        dlg.geometry(f"+{x}+{y}")
+
         dlg.wait_window()
 
     def _set_api_key_dialog(self) -> None:
