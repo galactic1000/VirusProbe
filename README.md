@@ -12,6 +12,7 @@ It provides both a CLI and a Tkinter GUI, with local caching to reduce repeat AP
 - Generate reports in `json`, `csv`, `txt`, or `md`
 - Save/remove API key from `.env`
 - Clear local SQLite cache from CLI or GUI
+- Configurable rate limit and worker count in GUI, persisted to `.env`
 
 ## Requirements
 
@@ -180,8 +181,12 @@ python cli.py --clear-cache
   - Add multiple SHA-256 hashes (one per line)
 - Drag-and-drop accepts files.
 - Duplicate queued items are skipped.
-- `Scan` runs queued items.
-- `Generate Report...` is always visible and enabled after first completed scan result.
+- `Advanced...` opens the Advanced Scan Settings dialog:
+  - **Workers**: concurrent scan threads (default: `4`, range: `1`–`50`)
+  - **Req/min**: VirusTotal API rate limit (default: `4`, `0` = unlimited for premium keys)
+  - Settings are saved to `.env` on Apply and restored on next launch.
+- `Scan` runs all queued items.
+- `Generate Report...` is enabled after the first completed scan.
 - Report dialog supports report name, format, and destination folder.
 - After generation, GUI offers `Open Report` and `Open Folder`.
 - `Clear Cache` clears the local SQLite cache.
@@ -198,7 +203,11 @@ Example `.env`:
 
 ```env
 VT_API_KEY=your_api_key_here
+VT_REQUESTS_PER_MINUTE=4
+VT_WORKERS=4
 ```
+
+`VT_REQUESTS_PER_MINUTE` and `VT_WORKERS` are written by the GUI when settings are applied via the Advanced dialog. They can also be set manually.
 
 ## Cache
 
