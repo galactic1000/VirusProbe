@@ -1,4 +1,4 @@
-"""CLI frontend for VirusProbe."""
+﻿"""CLI frontend for VirusProbe."""
 
 from __future__ import annotations
 
@@ -195,8 +195,3 @@ def main() -> None:
 
     if any(r.get("status") == "error" for r in results):
         sys.exit(1)
-
-
-if __name__ == "__main__":
-    main()
-

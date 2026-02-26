@@ -138,4 +138,3 @@ def test_output_toggle_auto_generates_report_name(monkeypatch) -> None:
     monkeypatch.setattr(cli_app, 'ScannerService', FakeService)
 
     _run_main(monkeypatch, ['cli.py', '-s', 'a' * 64, '-o', '--format', 'md'])
-

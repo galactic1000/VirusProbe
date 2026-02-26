@@ -37,4 +37,3 @@ def test_requests_per_minute_parsing(rpm_flags, expected) -> None:
     parser = _build_parser()
     args = parser.parse_args(["-s", "a" * 64] + rpm_flags)
     assert args.requests_per_minute == expected
-

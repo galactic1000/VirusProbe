@@ -171,5 +171,3 @@ def test_scan_hashes_on_result_callback_fires_for_each_item(tmp_path) -> None:
 
     assert len(fired) == 2
     assert all(r["status"] == "ok" for r in fired)
-
-
