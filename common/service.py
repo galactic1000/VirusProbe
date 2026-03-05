@@ -224,8 +224,8 @@ class ScannerService:
             if exc.code == "NotFoundError":
                 return self._not_found_result(normalized_hash)
             return self._hash_error(normalized_hash, str(exc), normalized_hash)
-        except ValueError as exc:
-            return self._hash_error(normalized_hash, f"Unexpected VT response: {exc}", normalized_hash)
+        except ValueError:
+            return self._not_found_result(normalized_hash)
         except Exception as exc:
             return self._hash_error(normalized_hash, str(exc), normalized_hash)
 
@@ -335,6 +335,13 @@ class ScannerService:
             return self._error_result(file_path, "file", f"File not found: {file_path}", file_hash)
         if not path.is_file():
             return self._error_result(file_path, "file", f"Not a file: {file_path}", file_hash)
+        if not file_hash:
+            try:
+                file_hash = self.hash_file(file_path, cancel_event)
+            except _HashCancelled:
+                return self._cancelled_result(file_path, "file")
+            except OSError as exc:
+                return self._error_result(file_path, "file", str(exc))
         return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
 
     def upload_files_direct(

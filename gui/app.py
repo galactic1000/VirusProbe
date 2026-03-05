@@ -269,8 +269,7 @@ class VirusProbeGUI:
             self._show_info("No Upload Selection", "Select one or more 'Undetected' file rows to upload.")
             return
 
-        hash_by_path = {r.get("item", ""): r.get("file_hash", "") for r in self.model.results_snapshot()}
-        entries = [(iid, fp, hash_by_path.get(fp, "")) for iid, fp in file_entries]
+        entries = [(iid, fp, "") for iid, fp in file_entries]
 
         for iid, _, _ in entries:
             self.view.set_row_status(iid, "Uploading...")

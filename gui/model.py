@@ -7,8 +7,6 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-import vt
-
 from common import (
     ScannerService,
     get_api_key,

@@ -44,24 +44,13 @@ def scan_many(
             done, _ = wait(tuple(future_to_idx.keys()), return_when=FIRST_COMPLETED)
             for future in done:
                 idx = future_to_idx.pop(future)
-                try:
-                    result = future.result()
-                    results[idx] = result
-                    if on_result is not None:
-                        on_result(result)
-                except Exception:
-                    pass
+                result = future.result()
+                results[idx] = result
+                if on_result is not None:
+                    on_result(result)
             if cancel_event is not None and cancel_event.is_set():
                 for future in list(future_to_idx):
                     future.cancel()
-                for future, idx in list(future_to_idx.items()):
-                    try:
-                        result = future.result()
-                        results[idx] = result
-                        if on_result is not None:
-                            on_result(result)
-                    except Exception:
-                        pass
                 break
             while len(future_to_idx) < max_workers and _submit_next():
                 pass
