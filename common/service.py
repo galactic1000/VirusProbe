@@ -20,6 +20,10 @@ DEFAULT_SCAN_WORKERS = 4
 DEFAULT_REQUESTS_PER_MINUTE = 4
 _HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
 
+class _HashCancelled(Exception):
+    """Raised internally when file hashing is interrupted by cancel_event."""
+
+
 class ScannerService:
     """VirusTotal scanner backed by ScanCache."""
 
@@ -81,10 +85,12 @@ class ScannerService:
         return client
 
     @staticmethod
-    def hash_file(file_path: str) -> str:
+    def hash_file(file_path: str, cancel_event: threading.Event | None = None) -> str:
         hasher = hashlib.sha256()
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                if cancel_event is not None and cancel_event.is_set():
+                    raise _HashCancelled()
                 hasher.update(chunk)
         return hasher.hexdigest()
 
@@ -159,7 +165,9 @@ class ScannerService:
 
     def _scan_file_verified(self, file_path: str, cancel_event: threading.Event | None = None) -> dict[str, Any]:
         try:
-            file_hash = self.hash_file(file_path)
+            file_hash = self.hash_file(file_path, cancel_event)
+        except _HashCancelled:
+            return self._cancelled_result(file_path, "file")
         except OSError as exc:
             return self._error_result(file_path, "file", str(exc))
 
