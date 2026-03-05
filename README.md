@@ -200,7 +200,7 @@ python cli.py -d /path/to/folder --upload --upload-filter "*.exe" "*.dll"
 Upload undetected files inside a specific subdirectory relative to current one:
 
 ```bash
-python cli.py -d /path/to/folder --upload --upload-filter "/suspicious/*.bin"
+python cli.py -d /path/to/folder --upload --upload-filter "suspicious/*.bin"
 ```
 
 Clear cache only:
