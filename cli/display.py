@@ -9,7 +9,7 @@ from colorama import Fore, Style
 from common import build_summary
 
 TOOL_NAME = "VirusProbe"
-TOOL_VERSION = "1.0"
+TOOL_VERSION = "1.0.0"
 TOOL_TAGLINE = "VirusTotal Scanner"
 BANNER_BORDER_CHAR = "#"
 HEADER_BORDER_CHAR = "="
