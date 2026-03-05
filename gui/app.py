@@ -264,12 +264,15 @@ class VirusProbeGUI:
             self._show_error("Missing API Key", "Set an API key before uploading.")
             return
 
-        entries = self.view.selected_undetected_files()
-        if not entries:
+        file_entries = self.view.selected_undetected_files()
+        if not file_entries:
             self._show_info("No Upload Selection", "Select one or more 'Undetected' file rows to upload.")
             return
 
-        for iid, _ in entries:
+        hash_by_path = {r.get("item", ""): r.get("file_hash", "") for r in self.model.results_snapshot()}
+        entries = [(iid, fp, hash_by_path.get(fp, "")) for iid, fp in file_entries]
+
+        for iid, _, _ in entries:
             self.view.set_row_status(iid, "Uploading...")
         self._begin_busy_state(self._cancel_upload)
         self.is_uploading = True
@@ -281,13 +284,13 @@ class VirusProbeGUI:
             return
         self._request_cancel("Cancelling upload...")
 
-    def _upload_worker(self, entries: list[tuple[str, str]]) -> None:
+    def _upload_worker(self, entries: list[tuple[str, str, str]]) -> None:
         try:
             current_rpm, current_workers = self._current_limits()
             scanner = self._acquire_scanner(
                 requests_per_minute=current_rpm,
                 workers=max(1, min(current_workers, len(entries))),
-                upload_undetected=True,
+                upload_undetected=False,
             )
 
             def on_result(result: dict[str, Any], iid: str | None) -> None:
@@ -316,7 +319,7 @@ class VirusProbeGUI:
             self._safe_after(lambda: self.view.progress_var.set("Upload failed"))
             self._safe_after(
                 self.view.mark_rows_status_if_current,
-                [iid for iid, _ in entries],
+                [iid for iid, _, _ in entries],
                 "Uploading...",
                 "Error",
             )

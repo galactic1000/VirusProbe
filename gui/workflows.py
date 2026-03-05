@@ -71,14 +71,21 @@ class UploadWorkflowResult:
 
 def run_upload_workflow(
     scanner: ScannerService,
-    entries: list[tuple[str, str]],
+    entries: list[tuple[str, str, str]],
     cancel_event: Event,
     on_result: Callable[[dict[str, Any], str | None], None],
 ) -> UploadWorkflowResult:
-    entry_by_file = {file_path: iid for iid, file_path in entries}
-    results = scanner.scan_files([file_path for _, file_path in entries], cancel_event=cancel_event)
-    for result in results:
+    """Upload files directly using known hashes, skipping the redundant VT lookup.
+
+    entries: list of (iid, file_path, file_hash)
+    """
+    entry_by_file = {file_path: iid for iid, file_path, _ in entries}
+    upload_entries = [(file_path, file_hash) for _, file_path, file_hash in entries]
+
+    def _on_result(result: dict[str, Any]) -> None:
         file_path = str(result.get("item", ""))
         iid = entry_by_file.get(file_path)
         on_result(result, iid)
-    return UploadWorkflowResult(cancelled=cancel_event.is_set(), entry_iids=[iid for iid, _ in entries])
+
+    scanner.upload_files_direct(upload_entries, on_result=_on_result, cancel_event=cancel_event)
+    return UploadWorkflowResult(cancelled=cancel_event.is_set(), entry_iids=[iid for iid, _, _ in entries])

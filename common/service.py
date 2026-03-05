@@ -317,6 +317,43 @@ class ScannerService:
             cancel_event=cancel_event,
         )
 
+
+    def upload_file_direct(
+        self,
+        file_path: str,
+        file_hash: str,
+        cancel_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
+        """Upload a file directly, skipping the VirusTotal hash lookup."""
+        if cancel_event is not None and cancel_event.is_set():
+            return self._cancelled_result(file_path, "file", file_hash)
+        path = Path(file_path)
+        if not path.exists():
+            return self._error_result(file_path, "file", f"File not found: {file_path}", file_hash)
+        if not path.is_file():
+            return self._error_result(file_path, "file", f"Not a file: {file_path}", file_hash)
+        return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
+
+    def upload_files_direct(
+        self,
+        entries: list[tuple[str, str]],
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        """Upload files directly using known hashes, skipping the VirusTotal hash lookup."""
+        hash_by_path = {file_path: file_hash for file_path, file_hash in entries}
+
+        def _upload_one(file_path: str) -> dict[str, Any]:
+            return self.upload_file_direct(file_path, hash_by_path[file_path], cancel_event=cancel_event)
+
+        return service_scan.scan_many(
+            self.max_workers,
+            _upload_one,
+            [fp for fp, _ in entries],
+            on_result=on_result,
+            cancel_event=cancel_event,
+        )
+
     # Scan orchestration helpers (implemented in common/service_scan.py).
     def _scan_many(
         self,
