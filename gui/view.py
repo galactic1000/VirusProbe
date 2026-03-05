@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 import tkinter as tk
 from tkinter import ttk
-from typing import Callable
+from typing import Any, Callable
 
 from tkinterdnd2 import DND_FILES
 
@@ -36,6 +36,7 @@ class MainWindow:
         on_generate_report: Callable[[], None],
     ) -> None:
         self.root = root
+        self._item_keys: set[tuple[str, str]] = set()
         self.api_status_var = tk.StringVar(value="API Key: Not Set")
         self.upload_indicator_var = tk.StringVar(value="")
         self.progress_var = tk.StringVar(value="Ready")
@@ -76,7 +77,8 @@ class MainWindow:
         ttk.Label(top, textvariable=self.api_status_var).pack(side=tk.LEFT, padx=(20, 0), pady=(5, 0))
         top_actions = ttk.Frame(top)
         top_actions.pack(side=tk.RIGHT)
-        ttk.Button(top_actions, text="Set API Key", command=on_set_api_key).pack(side=tk.LEFT, padx=(0, 8))
+        self.set_api_key_btn = ttk.Button(top_actions, text="Set API Key", command=on_set_api_key)
+        self.set_api_key_btn.pack(side=tk.LEFT, padx=(0, 8))
         ttk.Button(top_actions, text="Clear Cache", command=on_clear_cache).pack(side=tk.LEFT, padx=(0, 8))
         self.advanced_btn = ttk.Button(top_actions, text="Advanced...", command=on_advanced)
         self.advanced_btn.pack(side=tk.LEFT)
@@ -140,6 +142,7 @@ class MainWindow:
         self.remove_btn.configure(state=state)
         self.clear_btn.configure(state=state)
         self.add_menu_btn.configure(state=state)
+        self.set_api_key_btn.configure(state=state)
         self.advanced_btn.configure(state=state)
 
     def set_scan_button_scan(self, on_scan: Callable[[], None]) -> None:
@@ -162,3 +165,68 @@ class MainWindow:
             self.progress_bar.configure(maximum=1, value=0)
             return
         self.progress_bar.configure(maximum=total, value=min(completed, total))
+
+    def add_item(self, item_type: str, value: str) -> bool:
+        key = (item_type, value)
+        if key in self._item_keys:
+            return False
+        self._item_keys.add(key)
+        self.tree.insert("", tk.END, values=(item_type, value, "Queued"))
+        return True
+
+    def remove_selected(self) -> bool:
+        selected = self.tree.selection()
+        if not selected:
+            return False
+        for iid in selected:
+            self.tree.delete(iid)
+        self._item_keys = {
+            (vals[0], vals[1])
+            for iid in self.tree.get_children()
+            for vals in [self.tree.item(iid, "values")]
+            if vals
+        }
+        return True
+
+    def clear_items(self) -> None:
+        self.tree.delete(*self.tree.get_children())
+        self._item_keys.clear()
+
+    def item_count(self) -> int:
+        return len(self.tree.get_children())
+
+    def collect_pending_entries(self) -> list[tuple[str, str, str]]:
+        rows: list[tuple[str, str, str]] = []
+        for iid in self.tree.get_children():
+            vals = self.tree.item(iid, "values")
+            if not vals or vals[2] != "Queued":
+                continue
+            rows.append((iid, vals[0], vals[1]))
+        return [e for e in rows if e[1] == "file"] + [e for e in rows if e[1] == "hash"]
+
+    def set_row_status(self, iid: str, status: str) -> None:
+        vals = self.tree.item(iid, "values")
+        if vals:
+            self.tree.item(iid, values=(vals[0], vals[1], status))
+
+    def mark_rows_status_if_current(self, iids: list[str], from_status: str, to_status: str) -> None:
+        for iid in iids:
+            vals = self.tree.item(iid, "values")
+            if vals and vals[2] == from_status:
+                self.tree.item(iid, values=(vals[0], vals[1], to_status))
+
+    def has_uploadable_undetected(self) -> bool:
+        for iid in self.tree.get_children():
+            vals = self.tree.item(iid, "values")
+            if vals and vals[0] == "file" and vals[2] == "Undetected":
+                return True
+        return False
+
+    def selected_undetected_files(self) -> list[tuple[str, str]]:
+        entries: list[tuple[str, str]] = []
+        for iid in self.tree.selection():
+            vals = self.tree.item(iid, "values")
+            if vals and vals[0] == "file" and vals[2] == "Undetected":
+                entries.append((iid, vals[1]))
+        return entries
+

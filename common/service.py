@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -13,14 +13,14 @@ import vt
 
 from .cache import ScanCache
 from .rate_limit import RateLimiter
-from .service_scan import ScanOrchestrationMixin
-from .service_upload import UploadFlowMixin
+from . import service_scan
+from . import service_upload
 
 DEFAULT_SCAN_WORKERS = 4
 DEFAULT_REQUESTS_PER_MINUTE = 4
 _HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
 
-class ScannerService(UploadFlowMixin, ScanOrchestrationMixin):
+class ScannerService:
     """VirusTotal scanner backed by ScanCache."""
 
     def __init__(
@@ -276,4 +276,98 @@ class ScannerService(UploadFlowMixin, ScanOrchestrationMixin):
         response_json = client.get(f"/files/{file_hash}").json()
         self._cache.save(file_hash, self._extract_stats(response_json))
         return response_json, False
+
+    # Upload flow helpers (implemented in common/service_upload.py).
+    def _passes_upload_filter(self, file_path: str) -> bool:
+        return service_upload.passes_upload_filter(self.upload_filter, file_path)
+
+    def _upload_file(self, file_path: str) -> str:
+        return service_upload.upload_file(
+            get_client=self._get_client,
+            rate_limit_acquire=self._rate_limiter.acquire,
+            file_path=file_path,
+        )
+
+    @staticmethod
+    def _sleep_with_cancel(seconds: float, cancel_event: threading.Event | None = None) -> None:
+        return service_upload.sleep_with_cancel(seconds, cancel_event=cancel_event)
+
+    def _poll_interval_seconds(self) -> int:
+        return service_upload.poll_interval_seconds(self._requests_per_minute)
+
+    def _poll_analysis(self, analysis_id: str, cancel_event: threading.Event | None = None) -> tuple[int, int, int, int]:
+        return service_upload.poll_analysis(
+            get_client=self._get_client,
+            rate_limit_acquire=self._rate_limiter.acquire,
+            requests_per_minute=self._requests_per_minute,
+            analysis_id=analysis_id,
+            cancel_event=cancel_event,
+        )
+
+    def _upload_and_scan(self, file_path: str, file_hash: str, cancel_event: threading.Event | None = None) -> dict[str, Any]:
+        return service_upload.upload_and_scan(
+            upload_file_fn=self._upload_file,
+            poll_analysis_fn=self._poll_analysis,
+            cache_save=self._cache.save,
+            classify_threat=self.classify_threat,
+            error_result=self._error_result,
+            cancelled_result=self._cancelled_result,
+            file_path=file_path,
+            file_hash=file_hash,
+            cancel_event=cancel_event,
+        )
+
+    # Scan orchestration helpers (implemented in common/service_scan.py).
+    def _scan_many(
+        self,
+        scan_func: Callable[[str], dict[str, Any]],
+        items: Iterable[str],
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        return service_scan.scan_many(self.max_workers, scan_func, items, on_result=on_result, cancel_event=cancel_event)
+
+    def scan_files(
+        self,
+        file_paths: Iterable[str],
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        return service_scan.scan_files(
+            max_workers=self.max_workers,
+            scan_file=self.scan_file,
+            file_paths=file_paths,
+            on_result=on_result,
+            cancel_event=cancel_event,
+        )
+
+    def scan_hashes(
+        self,
+        hashes: Iterable[str],
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        return service_scan.scan_hashes(
+            max_workers=self.max_workers,
+            scan_hash=self.scan_hash,
+            hashes=hashes,
+            on_result=on_result,
+            cancel_event=cancel_event,
+        )
+
+    def scan_directory(
+        self,
+        directory: str,
+        recursive: bool = False,
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        return service_scan.scan_directory(
+            directory,
+            scan_files=self.scan_files,
+            error_result=self._error_result,
+            recursive=recursive,
+            on_result=on_result,
+            cancel_event=cancel_event,
+        )
 

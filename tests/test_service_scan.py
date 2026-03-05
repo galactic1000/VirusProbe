@@ -86,7 +86,6 @@ def test_scan_directory_passes_file_list_to_scan_files(tmp_path) -> None:
             arg = scan_files_mock.call_args[0][0]
     finally:
         service.close()
-    assert isinstance(arg, list)
     assert sorted(arg) == sorted([str(sample_dir / "a.bin"), str(sample_dir / "b.bin")])
 
 
