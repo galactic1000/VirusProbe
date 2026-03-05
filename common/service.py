@@ -175,7 +175,7 @@ class ScannerService:
             vt_response, was_cached = self._query_virustotal(file_hash)
             malicious, suspicious, harmless, undetected = self._extract_stats(vt_response)
         except vt.APIError as exc:
-            if exc.code == "NotFoundError" and self.upload_undetected and self._passes_upload_filter(file_path):
+            if exc.code == "NotFoundError" and self.upload_undetected and (self.upload_filter is None or self.upload_filter(file_path)):
                 if cancel_event is None:
                     return self._upload_and_scan(file_path, file_hash)
                 return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
@@ -280,23 +280,12 @@ class ScannerService:
         self._cache.save(file_hash, self._extract_stats(response_json))
         return response_json, False
 
-    # Upload flow helpers (implemented in common/service_upload.py).
-    def _passes_upload_filter(self, file_path: str) -> bool:
-        return service_upload.passes_upload_filter(self.upload_filter, file_path)
-
     def _upload_file(self, file_path: str) -> str:
         return service_upload.upload_file(
             get_client=self._get_client,
             rate_limit_acquire=self._rate_limiter.acquire,
             file_path=file_path,
         )
-
-    @staticmethod
-    def _sleep_with_cancel(seconds: float, cancel_event: threading.Event | None = None) -> None:
-        return service_upload.sleep_with_cancel(seconds, cancel_event=cancel_event)
-
-    def _poll_interval_seconds(self) -> int:
-        return service_upload.poll_interval_seconds(self._requests_per_minute)
 
     def _poll_analysis(self, analysis_id: str, cancel_event: threading.Event | None = None) -> tuple[int, int, int, int]:
         return service_upload.poll_analysis(
@@ -364,7 +353,6 @@ class ScannerService:
             cancel_event=cancel_event,
         )
 
-    # Scan orchestration helpers (implemented in common/service_scan.py).
     def _scan_many(
         self,
         scan_func: Callable[[str], dict[str, Any]],

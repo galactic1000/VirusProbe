@@ -85,13 +85,13 @@ class ScanCache:
 
             conn = self._get_conn()
             cursor = conn.cursor()
-            hash_bytes = self._to_bytes(file_hash)
+            hash_bytes = bytes.fromhex(file_hash)
             cursor.execute("SELECT stats, timestamp FROM scans WHERE hash = ?", (hash_bytes,))
             row = cursor.fetchone()
             if row:
                 stats_blob, timestamp = row
                 if int(timestamp) >= self._cutoff_ts():
-                    stats = self._unpack(stats_blob)
+                    stats = struct.unpack(">4I", stats_blob)
                     self._memory_set(file_hash, stats)
                     return self._build_response(stats)
                 cursor.execute("DELETE FROM scans WHERE hash = ?", (hash_bytes,))
@@ -106,7 +106,7 @@ class ScanCache:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT OR REPLACE INTO scans (hash, stats, timestamp) VALUES (?, ?, ?)",
-                (self._to_bytes(file_hash), self._pack(stats), int(time.time())),
+                (bytes.fromhex(file_hash), struct.pack(">4I", *stats), int(time.time())),
             )
             self._enforce_row_cap_locked(cursor)
             self._writes_since_trim += 1
@@ -116,15 +116,13 @@ class ScanCache:
                 self._writes_since_trim = 0
             conn.commit()
 
-    @staticmethod
-    def _create_scans_table_sql() -> str:
-        return (
-            "CREATE TABLE IF NOT EXISTS scans ("
-            "hash BLOB PRIMARY KEY, "
-            "stats BLOB NOT NULL, "
-            "timestamp INTEGER NOT NULL"
-            ") WITHOUT ROWID"
-        )
+    _CREATE_SQL = (
+        "CREATE TABLE IF NOT EXISTS scans ("
+        "hash BLOB PRIMARY KEY, "
+        "stats BLOB NOT NULL, "
+        "timestamp INTEGER NOT NULL"
+        ") WITHOUT ROWID"
+    )
 
     @staticmethod
     def _has_required_columns(cursor: sqlite3.Cursor) -> bool:
@@ -141,10 +139,10 @@ class ScanCache:
         return "WITHOUT ROWID" in str(row[0]).upper()
 
     def _ensure_schema(self, cursor: sqlite3.Cursor) -> None:
-        cursor.execute(self._create_scans_table_sql())
+        cursor.execute(self._CREATE_SQL)
         if not self._has_required_columns(cursor):
             cursor.execute("DROP TABLE IF EXISTS scans")
-            cursor.execute(self._create_scans_table_sql())
+            cursor.execute(self._CREATE_SQL)
         elif not self._is_without_rowid(cursor):
             cursor.execute("DROP TABLE IF EXISTS scans_new")
             cursor.execute(
@@ -183,18 +181,6 @@ class ScanCache:
 
     def _cutoff_ts(self) -> int:
         return int(time.time()) - self._expiry_seconds
-
-    @staticmethod
-    def _to_bytes(file_hash: str) -> bytes:
-        return bytes.fromhex(file_hash)
-
-    @staticmethod
-    def _pack(stats: tuple[int, int, int, int]) -> bytes:
-        return struct.pack(">4I", *stats)
-
-    @staticmethod
-    def _unpack(blob: bytes) -> tuple[int, int, int, int]:
-        return struct.unpack(">4I", blob)
 
     def _memory_get(self, file_hash: str) -> tuple[int, int, int, int] | None:
         result = self._memory.get(file_hash)

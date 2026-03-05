@@ -20,12 +20,6 @@ class ScanCancelledError(Exception):
     """Internal control-flow exception used for cooperative cancellation."""
 
 
-def passes_upload_filter(upload_filter: Callable[[str], bool] | None, file_path: str) -> bool:
-    if upload_filter is None:
-        return True
-    return upload_filter(file_path)
-
-
 def upload_file(
     get_client: Callable[[], Any],
     rate_limit_acquire: Callable[[], None],
