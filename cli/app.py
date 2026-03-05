@@ -58,7 +58,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--upload-filter",
         nargs="+",
         metavar="GLOB",
-        help="Only upload undetected files matching filename globs (e.g. *.exe) or path globs (e.g. src/*.dll). Requires --upload.",
+        help="Only upload undetected files matching glob patterns (filename: *.exe; path: */src/*.dll). Requires --upload.",
     )
 
     output = parser.add_argument_group("Output")
@@ -129,8 +129,7 @@ def _build_upload_filter(patterns: list[str]):
     """Returns a callable that returns True if a file path matches any of the glob patterns.
 
     Patterns without path separators (e.g. *.exe) are matched against the filename only.
-    Patterns with separators (e.g. src/*.dll) are matched against the resolved full path
-    using Path.match(), which matches from the right so subdir/*.dll works anywhere.
+    Patterns with separators are path globs matched against the resolved absolute path.
     """
     simple: list[str] = []
     path_pats: list[str] = []
@@ -143,11 +142,13 @@ def _build_upload_filter(patterns: list[str]):
     def _matches(file_path: str) -> bool:
         p = Path(file_path).resolve()
         name = p.name
+        abs_norm = str(p).replace("\\", "/")
         for pat in simple:
             if fnmatch.fnmatch(name, pat):
                 return True
         for pat in path_pats:
-            if p.match(pat):
+            pat_norm = pat.replace("\\", "/")
+            if fnmatch.fnmatch(abs_norm, pat_norm):
                 return True
         return False
 
@@ -288,4 +289,3 @@ def main() -> None:
         sys.exit(130)
     if any(r.get("status") == "error" for r in results):
         sys.exit(1)
-

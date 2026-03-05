@@ -95,6 +95,30 @@ def test_filter_existing_files_returns_only_real_files(tmp_path) -> None:
     ]
 
 
+def test_upload_filter_path_glob_matches_resolved_absolute_path(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "root"
+    target_dir = root / "samples"
+    target_dir.mkdir(parents=True)
+    file_path = target_dir / "x.dll"
+    file_path.write_bytes(b"x")
+    monkeypatch.chdir(root)
+
+    # Path globs are matched against resolved absolute path values.
+    matcher = cli_app._build_upload_filter(["*/samples/*.dll"])
+    assert matcher(str(file_path)) is True
+
+
+def test_upload_filter_absolute_path_glob_matches_absolute_path(tmp_path) -> None:
+    target_dir = tmp_path / "absdir"
+    target_dir.mkdir(parents=True)
+    file_path = target_dir / "y.dll"
+    file_path.write_bytes(b"x")
+
+    pattern = str(target_dir).replace("\\", "/") + "/*.dll"
+    matcher = cli_app._build_upload_filter([pattern])
+    assert matcher(str(file_path)) is True
+
+
 def test_main_exits_1_when_error_results(monkeypatch) -> None:
     class ErrorService(FakeService):
         def scan_hashes(self, *args, **kwargs):

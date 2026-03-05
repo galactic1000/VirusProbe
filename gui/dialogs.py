@@ -281,7 +281,7 @@ def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int, 
     upload_mode is one of 'never', 'manual', 'auto'.
     Checkbox mapping:
       main OFF              -> 'never'
-      main ON, auto OFF     -> 'manual'  (Upload button appears after scan)
+      main ON, auto OFF     -> 'manual'  (toolbar Upload button; enabled when undetected files are selectable)
       main ON, auto ON      -> 'auto'    (upload happens automatically)
     """
     dlg = tk.Toplevel(parent)
@@ -319,7 +319,7 @@ def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int, 
     auto_chk.pack(anchor=tk.W)
     desc_lbl = ttk.Label(
         sub_frame,
-        text="When checked: files are uploaded automatically (auto).\nWhen unchecked: an Upload button appears after the scan (manual).\nResults are always cached locally.",
+        text="When checked: files are uploaded automatically (auto).\nWhen unchecked: upload is manual via the toolbar Upload button.\nResults are always cached locally.",
         foreground="gray",
     )
     desc_lbl.pack(anchor=tk.W, pady=(2, 0))

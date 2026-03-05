@@ -73,7 +73,7 @@ class MainWindow:
         top = ttk.Frame(self.root, padding=(12, 10, 12, 8))
         top.pack(fill=tk.X)
         ttk.Label(top, text="VirusProbe", font=_title_font()).pack(side=tk.LEFT)
-        ttk.Label(top, textvariable=self.api_status_var).pack(side=tk.LEFT, padx=(20, 0))
+        ttk.Label(top, textvariable=self.api_status_var).pack(side=tk.LEFT, padx=(20, 0), pady=(5, 0))
         top_actions = ttk.Frame(top)
         top_actions.pack(side=tk.RIGHT)
         ttk.Button(top_actions, text="Set API Key", command=on_set_api_key).pack(side=tk.LEFT, padx=(0, 8))
@@ -108,7 +108,6 @@ class MainWindow:
         self.scan_btn = ttk.Button(right, text="Scan", command=on_scan, width=8)
         self.scan_btn.pack(side=tk.LEFT, padx=(8, 0))
 
-        ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12)
         list_frame = ttk.Frame(self.root, padding=(12, 8, 12, 0))
         list_frame.pack(fill=tk.BOTH, expand=True)
         columns = ("type", "value", "status")
@@ -127,7 +126,6 @@ class MainWindow:
         self.tree.dnd_bind("<<Drop>>", on_drop_files)  # type: ignore[attr-defined]
         self.tree.focus_set()
 
-        ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12, pady=(8, 0))
         bottom = ttk.Frame(self.root, padding=(12, 6, 12, 10))
         bottom.pack(fill=tk.X)
         self.report_button = ttk.Button(bottom, text="Generate Report...", command=on_generate_report)

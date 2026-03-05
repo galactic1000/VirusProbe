@@ -12,7 +12,7 @@ It provides both a CLI and a Tkinter GUI, with local caching to reduce repeat AP
 
 **Upload**
 - Optionally upload files with no VirusTotal record and wait for real engine verdicts
-- Three upload modes: `never` (default), `manual` (Upload button per row in GUI), `auto` (automatic during scan)
+- Three upload modes: `never` (default), `manual` (toolbar `Upload` button in GUI), `auto` (automatic during scan)
 - CLI `--upload-filter` accepts glob patterns to limit which undetected files get uploaded
 
 **Results & Reporting**
@@ -117,7 +117,7 @@ python cli.py [options]
 | `-d, --directory, --dir` | Scan all files in a directory |
 | `-r, --recursive` | Recurse subdirectories (directory mode only) |
 | `-u, --upload` | Upload files not found in VirusTotal and wait for analysis results (uses extra API quota) |
-| `--upload-filter GLOB [GLOB ...]` | Only upload files matching these glob patterns (requires `--upload`). Patterns without path separators match filename only (e.g. `*.exe`); patterns with separators match the full path (e.g. `src/*.dll`) |
+| `--upload-filter GLOB [GLOB ...]` | Only upload files matching these globs (requires `--upload`): filename `*.exe`; path `*/src/*.dll` (matched against resolved absolute paths). |
 | `-o, --output [OUTPUT]` | Write report to file; when used without value, auto-generates `scan_report_YYYYMMDD_HHMMSS.<format>` |
 | `--format {json,csv,txt,md}` | Report format for `--output` (default: `json`) |
 | `--requests-per-minute N` | Max VirusTotal API requests per minute (default: `4`, `0` = unlimited) |
@@ -197,10 +197,10 @@ Upload only `.exe` and `.dll` files that are undetected:
 python cli.py -d /path/to/folder --upload --upload-filter "*.exe" "*.dll"
 ```
 
-Upload undetected files inside a specific subdirectory:
+Upload undetected files inside a specific subdirectory relative to current one:
 
 ```bash
-python cli.py -d /path/to/folder --upload --upload-filter "suspicious/*.bin"
+python cli.py -d /path/to/folder --upload --upload-filter "/suspicious/*.bin"
 ```
 
 Clear cache only:
@@ -222,12 +222,12 @@ python cli.py --clear-cache
   - **Workers**: concurrent scan threads (default: `4`, range: `1`-`50`)
   - **Req/min**: VirusTotal API rate limit (default: `4`, `0` = unlimited for premium keys)
   - **Enable upload to VirusTotal for undetected files** (uses extra API quota): when checked, files not found in VirusTotal can be uploaded for scanning
-    - **Auto-upload all undetected items**: when checked, uploads happen automatically during the scan (`auto` mode); when unchecked, an `Upload` button appears after the scan so you can upload selected rows manually (`manual` mode)
+    - **Auto-upload all undetected items**: when checked, uploads happen automatically during the scan (`auto` mode); when unchecked, uploads are manual (`manual` mode) via the `Upload` button
   - Settings are saved to `.env` on Apply and restored on next launch.
   - Upload mode selection is persisted for GUI launches.
 - `Scan` runs all queued items.
 - During an active scan, `Scan` changes to `Cancel` so you can stop remaining queued work.
-- When upload mode is `manual` and the scan finds undetected file rows, an `Upload` button appears in the toolbar. Select one or more `Undetected` file rows and click `Upload` to submit them to VirusTotal.
+- In upload mode `manual`, an `Upload` button is shown in the toolbar and is enabled only when selectable `Undetected` file rows exist. Select one or more `Undetected` file rows and click `Upload` to submit them to VirusTotal.
 - Bottom-right progress bar tracks completed items for the current scan.
 - `Generate Report...` is enabled after the first completed scan.
 - Report dialog supports report name, format, and destination folder.
