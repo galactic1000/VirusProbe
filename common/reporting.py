@@ -9,7 +9,6 @@ from pathlib import Path
 
 
 def build_summary(results: list[dict]) -> dict[str, int]:
-    """Builds aggregate counts for reporting."""
     clean = suspicious = malicious = undetected = errors = 0
     for r in results:
         tl = r.get("threat_level")
@@ -34,12 +33,10 @@ def build_summary(results: list[dict]) -> dict[str, int]:
 
 
 def _md_cell(value: object) -> str:
-    """Escapes pipe characters so they don't break Markdown table cells."""
     return str(value).replace("|", "\\|")
 
 
 def write_report(results: list[dict], output_path: str, report_format: str, separator_width: int = 72) -> None:
-    """Writes scan results to file."""
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     summary = build_summary(results)

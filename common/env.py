@@ -64,7 +64,6 @@ def save_workers_to_env(workers: int) -> None:
 
 
 def get_upload_mode() -> str:
-    """Returns one of 'never', 'manual', or 'auto'."""
     raw = os.environ.get(UPLOAD_MODE_ENV_VAR, "").strip().lower()
     if raw in (UPLOAD_MANUAL, UPLOAD_AUTO):
         return raw
@@ -72,7 +71,6 @@ def get_upload_mode() -> str:
 
 
 def save_upload_mode_to_env(mode: str) -> None:
-    """Saves upload mode ('never', 'manual', or 'auto') to .env."""
     if mode not in (UPLOAD_NEVER, UPLOAD_MANUAL, UPLOAD_AUTO):
         mode = UPLOAD_NEVER
     dotenv.set_key(DOTENV_PATH, UPLOAD_MODE_ENV_VAR, mode, quote_mode="never")
@@ -80,7 +78,6 @@ def save_upload_mode_to_env(mode: str) -> None:
 
 
 def remove_api_key_from_env() -> bool:
-    """Removes the API key from .env and os.environ. Returns True if .env was modified."""
     removed = False
     for name in API_KEY_ENV_VARS:
         success, _ = dotenv.unset_key(DOTENV_PATH, name)

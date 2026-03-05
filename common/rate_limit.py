@@ -8,12 +8,6 @@ from collections import deque
 
 
 class RateLimiter:
-    """Thread-safe sliding-window rate limiter.
-
-    Tracks timestamps of recent acquisitions and blocks callers until
-    a slot is available within the rolling window.
-    Set ``max_calls=0`` to disable limiting.
-    """
 
     def __init__(self, max_calls: int, period: float = 60.0) -> None:
         self._max_calls = max_calls

@@ -12,8 +12,6 @@ from typing import Any
 
 
 class ScanCache:
-    """Two-level cache: bounded in-memory LRU backed by SQLite."""
-
     _TRIM_INTERVAL_WRITES = 50
     _WAL_AUTOCHECKPOINT_PAGES = 1000
     _CACHE_SIZE_KIB = 4096
@@ -35,7 +33,6 @@ class ScanCache:
         self._writes_since_trim = 0
 
     def _get_conn(self) -> sqlite3.Connection:
-        """Returns the persistent connection, opening it if needed. Must be called with _lock held."""
         if self._conn is None:
             self.cache_db.parent.mkdir(parents=True, exist_ok=True)
             self._conn = sqlite3.connect(str(self.cache_db), check_same_thread=False)
@@ -47,14 +44,12 @@ class ScanCache:
         return self._conn
 
     def close(self) -> None:
-        """Closes the persistent connection."""
         with self._lock:
             if self._conn is not None:
                 self._conn.close()
                 self._conn = None
 
     def init(self) -> None:
-        """Creates the DB table and prunes expired/excess rows."""
         with self._lock:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -63,7 +58,6 @@ class ScanCache:
             conn.commit()
 
     def clear(self) -> int:
-        """Deletes all cached rows and returns the count deleted."""
         with self._lock:
             self._memory.clear()
             conn = self._get_conn()
@@ -77,7 +71,6 @@ class ScanCache:
         return deleted
 
     def get(self, file_hash: str) -> dict[str, Any] | None:
-        """Returns a VT-like response dict if cached and fresh, else None."""
         with self._lock:
             stats = self._memory_get(file_hash)
             if stats is not None:
@@ -99,7 +92,6 @@ class ScanCache:
         return None
 
     def save(self, file_hash: str, stats: tuple[int, int, int, int]) -> None:
-        """Saves scan stats to memory and SQLite."""
         with self._lock:
             self._memory_set(file_hash, stats)
             conn = self._get_conn()

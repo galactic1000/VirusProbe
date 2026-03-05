@@ -14,7 +14,6 @@ PORTABLE_INVALID_CHARS = set('/\\:*?"<>|')
 
 
 def _is_portable_filename(name: str) -> bool:
-    """Returns True when `name` is portable across common filesystems."""
     if not name or name in {".", ".."}:
         return False
     if name[-1] in {" ", "."}:
@@ -26,10 +25,6 @@ def _is_portable_filename(name: str) -> bool:
 
 
 def show_add_hashes_dialog(parent: tk.Tk, add_item: Callable[[str, str], bool]) -> None:
-    """Prompts the user to paste multiple SHA-256 hashes.
-
-    `add_item(type, value)` should return True if the item was newly added.
-    """
     dialog = tk.Toplevel(parent)
     dialog.title("Add multiple SHA-256 hashes")
     dialog.transient(parent)
@@ -100,11 +95,6 @@ def show_generate_report_dialog(
     open_path: Callable[[str], None],
     open_folder: Callable[[str], None],
 ) -> str | None:
-    """Shows the Generate Report dialog. Writes the report on confirm.
-
-    Returns the new default directory on success, or None if cancelled.
-    Stays open if the write fails, showing the error inline.
-    """
     dialog = tk.Toplevel(parent)
     dialog.title("Generate Report")
     dialog.transient(parent)
@@ -200,7 +190,6 @@ def show_report_saved_dialog(
     open_path: Callable[[str], None],
     open_folder: Callable[[str], None],
 ) -> None:
-    """Shows the Report Saved confirmation dialog."""
     dialog = tk.Toplevel(parent)
     dialog.title("Report Saved")
     dialog.transient(parent)

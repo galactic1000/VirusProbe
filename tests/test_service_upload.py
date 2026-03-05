@@ -5,6 +5,7 @@ from unittest.mock import patch
 import vt
 
 from common.service import ScannerService
+from common import service_upload
 
 
 def _service(tmp_path) -> ScannerService:
@@ -133,17 +134,9 @@ def test_poll_analysis_uses_rate_limiter_for_each_poll(tmp_path) -> None:
 
 
 def test_poll_interval_is_tied_to_requests_per_minute(tmp_path) -> None:
-    service_default = ScannerService(api_key="test", cache_db=tmp_path / "a.db", requests_per_minute=4)
-    service_low = ScannerService(api_key="test", cache_db=tmp_path / "b.db", requests_per_minute=2)
-    service_unlimited = ScannerService(api_key="test", cache_db=tmp_path / "c.db", requests_per_minute=0)
-    try:
-        assert service_default._poll_interval_seconds() == 15
-        assert service_low._poll_interval_seconds() == 30
-        assert service_unlimited._poll_interval_seconds() == 15
-    finally:
-        service_default.close()
-        service_low.close()
-        service_unlimited.close()
+    assert service_upload.poll_interval_seconds(4) == 15
+    assert service_upload.poll_interval_seconds(2) == 30
+    assert service_upload.poll_interval_seconds(0) == 15
 
 
 def test_upload_filter_blocks_upload_and_returns_undetected(tmp_path) -> None:
