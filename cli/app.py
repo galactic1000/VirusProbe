@@ -8,6 +8,7 @@ import sys
 import threading
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from colorama import Fore, init
 
@@ -125,12 +126,8 @@ def _handle_admin_actions(
     return has_admin_action
 
 
-def _build_upload_filter(patterns: list[str]):
-    """Returns a callable that returns True if a file path matches any of the glob patterns.
-
-    Patterns without path separators (e.g. *.exe) are matched against the filename only.
-    Patterns with separators are path globs matched against the resolved absolute path.
-    """
+def _build_upload_filter(patterns: list[str]) -> Callable[[str], bool]:
+    """Builds a file-path matcher for upload-filter patterns."""
     simple: list[str] = []
     path_pats: list[str] = []
     for pat in patterns:
@@ -173,7 +170,7 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
     explicit_api_key = (args.api_key or "").strip()
-    scan_requested = bool(args.directory or args.files or args.hashes)
+    has_scan_input = bool(args.directory or args.files or args.hashes)
     report_format = args.format or "json"
     if args.output == _OUTPUT_AUTO:
         args.output = f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{report_format}"
@@ -186,15 +183,15 @@ def main() -> None:
         parser.error("--workers must be >= 1")
 
     has_admin_action = _handle_admin_actions(parser, args, explicit_api_key, args.workers)
-    if has_admin_action and not scan_requested:
+    if has_admin_action and not has_scan_input:
         return
 
     if args.recursive and not args.directory:
         parser.error("--recursive can only be used with --directory")
     if args.directory and args.files:
         parser.error("Use either --directory OR --file inputs, not both")
-    if not scan_requested:
-        parser.error("Provide one mode: -d <directory> (optionally with -s), OR -f <file1> [file2 ...], OR -s <hash1> [hash2 ...]")
+    if not has_scan_input:
+        parser.error("Provide scan input via --directory, --file, or --hash.")
 
     api_key = explicit_api_key or get_api_key()
     if not api_key:
@@ -212,10 +209,10 @@ def main() -> None:
 
     # Pre-collect only explicit (non-directory) targets. Directory scans are streamed
     # without pre-enumeration to avoid double filesystem traversal on large trees.
-    _dir_valid = False
+    directory_is_valid = False
     if args.directory:
-        _dp = Path(args.directory)
-        _dir_valid = _dp.exists() and _dp.is_dir()
+        directory_path = Path(args.directory)
+        directory_is_valid = directory_path.exists() and directory_path.is_dir()
     file_list: list[str] = []
     input_warnings: list[str] = []
     if args.files:
@@ -224,18 +221,18 @@ def main() -> None:
             print_input_warnings(input_warnings)
     hash_list = args.hashes or []
     total = len(file_list) + len(hash_list)
-    if args.directory and not _dir_valid:
+    if args.directory and not directory_is_valid:
         total += 1  # scan_directory returns one error result for a bad path
-    # When scanning a valid directory, total is unknown without traversing it first.
-    display_total: int | None = None if (args.directory and _dir_valid) else total
+    display_total: int | None = None if (args.directory and directory_is_valid) else total
 
-    completed = [0]
+    completed = 0
     results: list[dict] = []
 
     def on_result(result: dict) -> None:
+        nonlocal completed
         results.append(result)
-        completed[0] += 1
-        print_result(result, index=completed[0], total=display_total)
+        completed += 1
+        print_result(result, index=completed, total=display_total)
 
     if args.upload_filter and not args.upload:
         parser.error("--upload-filter requires --upload")
@@ -251,24 +248,29 @@ def main() -> None:
     try:
         service.init_cache()
 
-        def _run_scan(call):
+        def _run_scan(call: Callable[[], list[dict]]) -> None:
+            nonlocal completed
             before_results = len(results)
-            before_completed = completed[0]
             batch = call()
             if len(results) == before_results and isinstance(batch, list) and batch:
-                results.extend(batch)
-                if completed[0] == before_completed:
-                    for item in batch:
-                        completed[0] += 1
-                        print_result(item, index=completed[0], total=display_total)
+                for item in batch:
+                    results.append(item)
+                    completed += 1
+                    print_result(item, index=completed, total=display_total)
 
         try:
+            scans: list[Callable[[], list[dict]]] = []
             if args.directory:
-                _run_scan(lambda: service.scan_directory(args.directory, recursive=args.recursive, on_result=on_result, cancel_event=cancel_event))
-            if file_list and not cancel_event.is_set():
-                _run_scan(lambda: service.scan_files(file_list, on_result=on_result, cancel_event=cancel_event))
-            if hash_list and not cancel_event.is_set():
-                _run_scan(lambda: service.scan_hashes(hash_list, on_result=on_result, cancel_event=cancel_event))
+                scans.append(lambda: service.scan_directory(args.directory, recursive=args.recursive, on_result=on_result, cancel_event=cancel_event))
+            if file_list:
+                scans.append(lambda: service.scan_files(file_list, on_result=on_result, cancel_event=cancel_event))
+            if hash_list:
+                scans.append(lambda: service.scan_hashes(hash_list, on_result=on_result, cancel_event=cancel_event))
+
+            for run_scan in scans:
+                if cancel_event.is_set():
+                    break
+                _run_scan(run_scan)
         except KeyboardInterrupt:
             cancel_event.set()
             cancelled = True
