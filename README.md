@@ -1,12 +1,12 @@
 # VirusProbe
 
-VirusProbe scans file paths, directories, and SHA-256 hashes with VirusTotal.
+VirusProbe scans file paths, directories, and SHA-256 file hashes with VirusTotal.
 It provides both a CLI and a Tkinter GUI, with local caching to reduce repeat API calls.
 
 ## Features
 
 **Scanning**
-- Scan individual files, whole directories (with optional recursion), or bare SHA-256 hashes
+- Scan individual files, whole directories (with optional recursion), or bare SHA-256 file hashes
 - Mix directory scans with extra hash inputs in a single run
 - Concurrent scanning with a configurable worker count and per-minute rate limit
 
