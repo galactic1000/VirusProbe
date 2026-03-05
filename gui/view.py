@@ -74,8 +74,12 @@ class MainWindow:
         top.pack(fill=tk.X)
         ttk.Label(top, text="VirusProbe", font=_title_font()).pack(side=tk.LEFT)
         ttk.Label(top, textvariable=self.api_status_var).pack(side=tk.LEFT, padx=(20, 0))
-        ttk.Button(top, text="Clear Cache", command=on_clear_cache).pack(side=tk.RIGHT)
-        ttk.Button(top, text="Set API Key", command=on_set_api_key).pack(side=tk.RIGHT, padx=(0, 8))
+        top_actions = ttk.Frame(top)
+        top_actions.pack(side=tk.RIGHT)
+        ttk.Button(top_actions, text="Set API Key", command=on_set_api_key).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(top_actions, text="Clear Cache", command=on_clear_cache).pack(side=tk.LEFT, padx=(0, 8))
+        self.advanced_btn = ttk.Button(top_actions, text="Advanced...", command=on_advanced)
+        self.advanced_btn.pack(side=tk.LEFT)
 
         ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12)
         controls = ttk.Frame(self.root, padding=(12, 8, 12, 8))
@@ -97,14 +101,12 @@ class MainWindow:
 
         right = ttk.Frame(controls)
         right.pack(side=tk.RIGHT, fill=tk.Y)
-        self.advanced_btn = ttk.Button(right, text="Advanced...", command=on_advanced)
-        self.advanced_btn.pack(side=tk.LEFT)
         self.upload_indicator_lbl = ttk.Label(right, textvariable=self.upload_indicator_var, foreground="orange")
-        self.upload_indicator_lbl.pack(side=tk.LEFT, padx=(8, 0))
+        self.upload_indicator_lbl.pack(side=tk.LEFT)
         self.upload_action_btn = ttk.Button(right, text="Upload", command=on_upload)
-        ttk.Separator(right, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=(12, 12), pady=2)
+        self.upload_action_btn.pack(side=tk.LEFT, padx=(8, 0))
         self.scan_btn = ttk.Button(right, text="Scan", command=on_scan, width=8)
-        self.scan_btn.pack(side=tk.LEFT)
+        self.scan_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12)
         list_frame = ttk.Frame(self.root, padding=(12, 8, 12, 0))
@@ -123,6 +125,7 @@ class MainWindow:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
         self.tree.dnd_bind("<<Drop>>", on_drop_files)  # type: ignore[attr-defined]
+        self.tree.focus_set()
 
         ttk.Separator(self.root, orient=tk.HORIZONTAL).pack(fill=tk.X, padx=12, pady=(8, 0))
         bottom = ttk.Frame(self.root, padding=(12, 6, 12, 10))

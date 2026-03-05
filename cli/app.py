@@ -1,4 +1,4 @@
-﻿"""CLI frontend for VirusProbe."""
+"""CLI frontend for VirusProbe."""
 
 from __future__ import annotations
 
@@ -32,33 +32,37 @@ _OUTPUT_AUTO = "__AUTO_OUTPUT__"
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="VirusProbe - scan files or SHA-256 hashes using VirusTotal",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=(
+            "Examples:\n"
+            "  python cli.py -f sample.exe\n"
+            "  python cli.py -d ./samples -r --upload --upload-filter *.exe *.dll\n"
+            "  python cli.py -s <sha256> --requests-per-minute 10 --workers 4\n"
+            "  python cli.py -f sample.exe -o --format md"
+        ),
         add_help=True,
     )
-    # --- Scan targets ---
-    parser.add_argument("-f", "--file", "--files", dest="files", nargs="+", help="One or more file paths to scan")
-    parser.add_argument("-s", "--hash", "--hashes", dest="hashes", nargs="+", help="One or more SHA-256 hashes to scan")
-    parser.add_argument("-d", "--directory", "--dir", help="Scan all files in a directory")
-    parser.add_argument("-r", "--recursive", action="store_true", help="When using --directory, scan subdirectories recursively")
+    targets = parser.add_argument_group("Scan Targets")
+    targets.add_argument("-f", "--file", "--files", dest="files", nargs="+", metavar="FILE", help="One or more file paths to scan")
+    targets.add_argument("-s", "--hash", "--hashes", dest="hashes", nargs="+", metavar="SHA256", help="One or more SHA-256 hashes to scan")
+    targets.add_argument("-d", "--directory", "--dir", metavar="DIR", help="Scan all files in a directory")
+    targets.add_argument("-r", "--recursive", action="store_true", help="When using --directory, scan subdirectories recursively")
 
-    # --- Upload options ---
-    parser.add_argument(
+    upload = parser.add_argument_group("Upload Options")
+    upload.add_argument(
         "-u", "--upload",
         action="store_true",
         help="Upload files not found in VirusTotal and wait for analysis results (uses extra API quota)",
     )
-    parser.add_argument(
+    upload.add_argument(
         "--upload-filter",
         nargs="+",
         metavar="GLOB",
-        help=(
-            "Only upload files matching these glob patterns (requires --upload). "
-            "Patterns without path separators match the filename only (e.g. *.exe). "
-            "Patterns with separators match the full path (e.g. src/*.dll)."
-        ),
+        help="Only upload undetected files matching filename globs (e.g. *.exe) or path globs (e.g. src/*.dll). Requires --upload.",
     )
 
-    # --- Output ---
-    parser.add_argument(
+    output = parser.add_argument_group("Output")
+    output.add_argument(
         "-o",
         "--output",
         nargs="?",
@@ -66,24 +70,26 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="OUTPUT",
         help="Write report to file (default: scan_report_YYYYMMDD_HHMMSS.<format>)",
     )
-    parser.add_argument("--format", choices=["json", "csv", "txt", "md"], help="Report format for report output (default: json)")
+    output.add_argument("--format", choices=["json", "csv", "txt", "md"], help="Report format when writing a report (default: json)")
 
-    # --- Performance ---
-    parser.add_argument("--workers", type=int, default=None, metavar="WORKERS", help="Concurrent scan workers (default: matches --requests-per-minute)")
-    parser.add_argument(
+    perf = parser.add_argument_group("Performance")
+    perf.add_argument("-w", "--workers", type=int, default=None, metavar="WORKERS", help="Concurrent scan workers (default: matches --requests-per-minute)")
+    perf.add_argument(
+        "--rpm",
         "--requests-per-minute",
+        dest="requests_per_minute",
         type=int,
         default=DEFAULT_REQUESTS_PER_MINUTE,
         metavar="N",
         help=f"Max VirusTotal API requests per minute (default: {DEFAULT_REQUESTS_PER_MINUTE}, 0 = unlimited)",
     )
 
-    # --- API key / cache management ---
-    parser.add_argument("--api-key", help="VirusTotal API key (overrides env/.env)")
-    parser.add_argument("--save-api-key", action="store_true", help="Save --api-key into .env for future runs")
-    parser.add_argument("--clear-api-key", action="store_true", help="Remove saved API key from .env")
-    parser.add_argument("--clear-cache", action="store_true", help="Clear local SQLite scan cache")
-    parser.add_argument("--version", action="version", version=f"VirusProbe {TOOL_VERSION}")
+    admin = parser.add_argument_group("API Key / Cache")
+    admin.add_argument("--api-key", metavar="KEY", help="VirusTotal API key (overrides env/.env)")
+    admin.add_argument("--save-api-key", action="store_true", help="Save --api-key into .env for future runs")
+    admin.add_argument("--clear-api-key", action="store_true", help="Remove saved API key from .env")
+    admin.add_argument("--clear-cache", action="store_true", help="Clear local SQLite scan cache")
+    admin.add_argument("--version", action="version", version=f"VirusProbe {TOOL_VERSION}")
     return parser
 
 
@@ -235,10 +241,10 @@ def main() -> None:
     upload_filter = _build_upload_filter(args.upload_filter) if args.upload_filter else None
     if args.upload:
         if args.upload_filter:
-            print(format_colored(f"Upload mode: unknown files matching {args.upload_filter} will be submitted to VirusTotal.", Fore.YELLOW))
+            print(format_colored(f"Upload mode: undetected files matching {args.upload_filter} will be submitted to VirusTotal.", Fore.YELLOW))
         else:
-            print(format_colored("Upload mode: unknown files will be submitted to VirusTotal for scanning.", Fore.YELLOW))
-    service = ScannerService(api_key=api_key, cache_db=CACHE_DB, max_workers=args.workers, requests_per_minute=args.requests_per_minute, upload_unknown=args.upload, upload_filter=upload_filter)
+            print(format_colored("Upload mode: undetected files will be submitted to VirusTotal for scanning.", Fore.YELLOW))
+    service = ScannerService(api_key=api_key, cache_db=CACHE_DB, max_workers=args.workers, requests_per_minute=args.requests_per_minute, upload_undetected=args.upload, upload_filter=upload_filter)
     cancel_event = threading.Event()
     cancelled = False
     try:
@@ -282,3 +288,4 @@ def main() -> None:
         sys.exit(130)
     if any(r.get("status") == "error" for r in results):
         sys.exit(1)
+

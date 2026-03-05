@@ -86,7 +86,7 @@ class VirusProbeGUI:
             on_clear_items=self._clear_items,
             on_advanced=self._show_advanced_dialog,
             on_scan=self._scan_items,
-            on_upload=self._upload_selected_unknowns,
+            on_upload=self._upload_selected_undetected,
             on_drop_files=self._on_drop_files,
             on_generate_report=self._generate_report,
         )
@@ -129,7 +129,7 @@ class VirusProbeGUI:
     def _cancel_scan(self) -> None:
         self.scan_controller.cancel()
 
-    def _upload_selected_unknowns(self) -> None:
+    def _upload_selected_undetected(self) -> None:
         self.upload_controller.start_selected()
 
     def _cancel_upload(self) -> None:
@@ -161,10 +161,15 @@ class VirusProbeGUI:
             self.last_results.append(result)
 
     def _update_upload_action_visibility(self) -> None:
-        should_show = self.upload_controller.has_uploadable_unknowns()
+        should_show = self.upload_mode == UPLOAD_MANUAL
+        can_upload = (
+            should_show
+            and self.upload_controller.has_uploadable_undetected()
+            and not (self.is_scanning or self.is_uploading)
+        )
         self.view.show_upload_button(should_show)
         if should_show:
-            self.view.set_upload_button_enabled(not (self.is_scanning or self.is_uploading))
+            self.view.set_upload_button_enabled(can_upload)
 
     def _mark_scanning_cancelled(self, iids: list[str]) -> None:
         for iid in iids:
@@ -381,3 +386,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

@@ -60,7 +60,7 @@ class ScanController:
                 cache_db=app.cache_db,
                 requests_per_minute=app.current_rpm,
                 max_workers=app.current_workers,
-                upload_unknown=(app.upload_mode == UPLOAD_AUTO),
+                upload_undetected=(app.upload_mode == UPLOAD_AUTO),
             )
             app.scanner = scanner
             scanner.init_cache()
@@ -126,7 +126,7 @@ class UploadController:
     def __init__(self, app: "VirusProbeGUI") -> None:
         self.app = app
 
-    def has_uploadable_unknowns(self) -> bool:
+    def has_uploadable_undetected(self) -> bool:
         app = self.app
         if app.upload_mode != UPLOAD_MANUAL:
             return False
@@ -182,7 +182,7 @@ class UploadController:
                 cache_db=app.cache_db,
                 requests_per_minute=current_rpm,
                 max_workers=max(1, min(current_workers, len(entries))),
-                upload_unknown=True,
+                upload_undetected=True,
             )
             scanner.init_cache()
             results = scanner.scan_files([file_path for _, file_path in entries], cancel_event=app.cancel_event)
@@ -216,3 +216,4 @@ class UploadController:
             app._safe_after(app._update_upload_action_visibility)
             if app.is_closing:
                 app._safe_after(app.root.destroy)
+

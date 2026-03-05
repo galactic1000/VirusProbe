@@ -308,14 +308,14 @@ def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int, 
     ttk.Separator(body, orient=tk.HORIZONTAL).grid(row=2, column=0, columnspan=2, sticky=tk.EW, pady=(4, 10))
 
     # Main upload checkbox
-    upload_chk = ttk.Checkbutton(body, text="Enable upload to VirusTotal for unknown files (uses extra API quota)", variable=upload_enabled_var)
+    upload_chk = ttk.Checkbutton(body, text="Enable upload to VirusTotal for undetected files (uses extra API quota)", variable=upload_enabled_var)
     upload_chk.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
 
     # Sub-option (indented, disabled when main is off)
     sub_frame = ttk.Frame(body)
     sub_frame.grid(row=4, column=0, columnspan=2, sticky=tk.W, padx=(20, 0), pady=(0, 4))
 
-    auto_chk = ttk.Checkbutton(sub_frame, text="Auto-upload all unknown items", variable=auto_upload_var)
+    auto_chk = ttk.Checkbutton(sub_frame, text="Auto-upload all undetected items", variable=auto_upload_var)
     auto_chk.pack(anchor=tk.W)
     desc_lbl = ttk.Label(
         sub_frame,
@@ -367,3 +367,4 @@ def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int, 
 
     dlg.wait_window()
     return result.get("values")
+

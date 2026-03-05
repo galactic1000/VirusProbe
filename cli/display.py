@@ -130,7 +130,7 @@ def print_result(result: dict, index: int | None = None, total: int | None = Non
         print("\n" + format_colored("Cancelled by user", Fore.MAGENTA))
         return
     if result.get("status") == "error":
-        print("\n" + format_colored(f"Error: {result.get('message', 'Unknown error')}", Fore.RED))
+        print("\n" + format_colored(f"Error: {result.get('message', 'Unexpected error')}", Fore.RED))
         return
 
     if result.get("was_uploaded"):
@@ -195,7 +195,7 @@ def print_scan_summary(results: list[dict]) -> None:
     if error_items:
         print_subsection("ERRORS", Fore.RED, leading_newline=False)
         for item in error_items:
-            print(f"  - {_item_label(item)} ({item.get('message', 'Unknown error')})")
+            print(f"  - {_item_label(item)} ({item.get('message', 'Unexpected error')})")
 
     print()
     print(HEADER_BORDER_CHAR * SEPARATOR_WIDTH + "\n")

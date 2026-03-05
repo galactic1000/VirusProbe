@@ -14,7 +14,7 @@ def _service(tmp_path) -> ScannerService:
 
 
 def test_scan_file_not_found_with_upload_enabled_triggers_upload(tmp_path) -> None:
-    service = ScannerService(api_key="test", cache_db=tmp_path / "vt_cache.db", upload_unknown=True)
+    service = ScannerService(api_key="test", cache_db=tmp_path / "vt_cache.db", upload_undetected=True)
     service.init_cache()
     sample = tmp_path / "sample.bin"
     sample.write_bytes(b"content")
@@ -147,7 +147,7 @@ def test_poll_interval_is_tied_to_requests_per_minute(tmp_path) -> None:
 
 
 def test_upload_filter_blocks_upload_and_returns_undetected(tmp_path) -> None:
-    service = ScannerService(api_key="test", cache_db=tmp_path / "vt_cache.db", upload_unknown=True, upload_filter=lambda _: False)
+    service = ScannerService(api_key="test", cache_db=tmp_path / "vt_cache.db", upload_undetected=True, upload_filter=lambda _: False)
     service.init_cache()
     sample = tmp_path / "blocked.bin"
     sample.write_bytes(b"x")
@@ -166,7 +166,7 @@ def test_upload_filter_blocks_upload_and_returns_undetected(tmp_path) -> None:
 
 
 def test_upload_filter_allows_upload_when_matched(tmp_path) -> None:
-    service = ScannerService(api_key="test", cache_db=tmp_path / "vt_cache.db", upload_unknown=True, upload_filter=lambda _: True)
+    service = ScannerService(api_key="test", cache_db=tmp_path / "vt_cache.db", upload_undetected=True, upload_filter=lambda _: True)
     service.init_cache()
     sample = tmp_path / "allowed.bin"
     sample.write_bytes(b"x")
@@ -270,3 +270,4 @@ def test_upload_file_rejects_over_650mb(tmp_path) -> None:
                 assert "max 650 MB" in str(exc)
     finally:
         service.close()
+

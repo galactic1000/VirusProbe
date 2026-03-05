@@ -1,4 +1,4 @@
-﻿"""Core scan service shared by CLI and GUI."""
+"""Core scan service shared by CLI and GUI."""
 
 from __future__ import annotations
 
@@ -32,11 +32,11 @@ class ScannerService(UploadFlowMixin, ScanOrchestrationMixin):
         memory_cache_max_entries: int = 512,
         max_workers: int | None = None,
         requests_per_minute: int = DEFAULT_REQUESTS_PER_MINUTE,
-        upload_unknown: bool = False,
+        upload_undetected: bool = False,
         upload_filter: Callable[[str], bool] | None = None,
     ) -> None:
         self.api_key = api_key
-        self.upload_unknown = upload_unknown
+        self.upload_undetected = upload_undetected
         self.upload_filter = upload_filter
         effective_workers = (
             max_workers
@@ -167,7 +167,7 @@ class ScannerService(UploadFlowMixin, ScanOrchestrationMixin):
             vt_response, was_cached = self._query_virustotal(file_hash)
             malicious, suspicious, harmless, undetected = self._extract_stats(vt_response)
         except vt.APIError as exc:
-            if exc.code == "NotFoundError" and self.upload_unknown and self._passes_upload_filter(file_path):
+            if exc.code == "NotFoundError" and self.upload_undetected and self._passes_upload_filter(file_path):
                 if cancel_event is None:
                     return self._upload_and_scan(file_path, file_hash)
                 return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
@@ -179,7 +179,7 @@ class ScannerService(UploadFlowMixin, ScanOrchestrationMixin):
             result.update({"item": file_path, "type": "file"})
             return result
         except ValueError:
-            if self.upload_unknown and self._passes_upload_filter(file_path):
+            if self.upload_undetected and self._passes_upload_filter(file_path):
                 if cancel_event is None:
                     return self._upload_and_scan(file_path, file_hash)
                 return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
@@ -276,3 +276,4 @@ class ScannerService(UploadFlowMixin, ScanOrchestrationMixin):
         response_json = client.get(f"/files/{file_hash}").json()
         self._cache.save(file_hash, self._extract_stats(response_json))
         return response_json, False
+
