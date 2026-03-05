@@ -53,17 +53,12 @@ class ScanController:
 
     def _worker(self) -> None:
         app = self.app
-        scanner: ScannerService | None = None
         try:
-            scanner = ScannerService(
-                api_key=app.api_key or "",
-                cache_db=app.cache_db,
+            scanner = app._acquire_scanner(
                 requests_per_minute=app.current_rpm,
-                max_workers=app.current_workers,
+                workers=app.current_workers,
                 upload_undetected=(app.upload_mode == UPLOAD_AUTO),
             )
-            app.scanner = scanner
-            scanner.init_cache()
             ordered_entries = app.pending_entries
             total = len(ordered_entries)
             completed = 0
@@ -100,7 +95,7 @@ class ScanController:
                 scanner.scan_hashes(hash_values, on_result=on_result, cancel_event=app.cancel_event)
 
             app._merge_results(new_results)
-            if app.last_results:
+            if app._has_results():
                 app._safe_after(lambda: app.view.report_button.configure(state="normal"))
             if app.cancel_event.is_set():
                 app._safe_after(app._mark_scanning_cancelled, [iid for iid, _, _ in ordered_entries])
@@ -113,9 +108,6 @@ class ScanController:
             app._safe_after(lambda: app._show_error("Scan Error", str(exc)))
             app._safe_after(lambda: app.view.progress_var.set("Scan failed"))
         finally:
-            if scanner is not None:
-                scanner.close()
-            app.scanner = None
             app.is_scanning = False
             app._safe_after(app._restore_scan_buttons)
             if app.is_closing:
@@ -172,19 +164,15 @@ class UploadController:
 
     def _worker(self, entries: list[tuple[str, str]]) -> None:
         app = self.app
-        scanner: ScannerService | None = None
         try:
             current_rpm = app._parse_int(app.rpm_var.get(), DEFAULT_REQUESTS_PER_MINUTE, minimum=0)
             current_workers = app._parse_int(app.workers_var.get(), DEFAULT_SCAN_WORKERS, minimum=1)
             entry_by_file = {file_path: iid for iid, file_path in entries}
-            scanner = ScannerService(
-                api_key=app.api_key or "",
-                cache_db=app.cache_db,
+            scanner = app._acquire_scanner(
                 requests_per_minute=current_rpm,
-                max_workers=max(1, min(current_workers, len(entries))),
+                workers=max(1, min(current_workers, len(entries))),
                 upload_undetected=True,
             )
-            scanner.init_cache()
             results = scanner.scan_files([file_path for _, file_path in entries], cancel_event=app.cancel_event)
             for result in results:
                 file_path = str(result.get("item", ""))
@@ -209,8 +197,6 @@ class UploadController:
 
             app._safe_after(_mark_errors)
         finally:
-            if scanner is not None:
-                scanner.close()
             app.is_uploading = False
             app._safe_after(app._restore_scan_buttons)
             app._safe_after(app._update_upload_action_visibility)

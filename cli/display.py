@@ -114,6 +114,8 @@ def print_result(result: dict, index: int | None = None, total: int | None = Non
     scan_type = "SHA-256 HASH SCAN" if result.get("type") == "hash" else "FILE SCAN"
     if index is not None and total is not None:
         print_header(f"ITEM {index}/{total} - {scan_type}", Fore.BLUE)
+    elif index is not None:
+        print_header(f"ITEM {index} - {scan_type}", Fore.BLUE)
     else:
         print_header(scan_type, Fore.BLUE)
     if result.get("type") == "file":

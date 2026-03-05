@@ -210,14 +210,12 @@ def main() -> None:
     if args.output:
         print(format_colored(f"Report: {args.output} ({report_format})", Fore.CYAN))
 
-    # Pre-collect scan targets to know the total count upfront and enable streaming output.
-    dir_files: list[str] = []
+    # Pre-collect only explicit (non-directory) targets. Directory scans are streamed
+    # without pre-enumeration to avoid double filesystem traversal on large trees.
     _dir_valid = False
     if args.directory:
         _dp = Path(args.directory)
         _dir_valid = _dp.exists() and _dp.is_dir()
-        if _dir_valid:
-            dir_files = [str(f) for f in (_dp.rglob("*") if args.recursive else _dp.iterdir()) if f.is_file()]
     file_list: list[str] = []
     input_warnings: list[str] = []
     if args.files:
@@ -225,9 +223,11 @@ def main() -> None:
         if input_warnings:
             print_input_warnings(input_warnings)
     hash_list = args.hashes or []
-    total = len(dir_files) + len(file_list) + len(hash_list)
+    total = len(file_list) + len(hash_list)
     if args.directory and not _dir_valid:
         total += 1  # scan_directory returns one error result for a bad path
+    # When scanning a valid directory, total is unknown without traversing it first.
+    display_total: int | None = None if (args.directory and _dir_valid) else total
 
     completed = [0]
     results: list[dict] = []
@@ -235,7 +235,7 @@ def main() -> None:
     def on_result(result: dict) -> None:
         results.append(result)
         completed[0] += 1
-        print_result(result, index=completed[0], total=total)
+        print_result(result, index=completed[0], total=display_total)
 
     if args.upload_filter and not args.upload:
         parser.error("--upload-filter requires --upload")
@@ -260,7 +260,7 @@ def main() -> None:
                 if completed[0] == before_completed:
                     for item in batch:
                         completed[0] += 1
-                        print_result(item, index=completed[0], total=total)
+                        print_result(item, index=completed[0], total=display_total)
 
         try:
             if args.directory:

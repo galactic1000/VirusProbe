@@ -51,8 +51,10 @@ class VirusProbeGUI:
         self.cache_db = CACHE_DB
         self.api_key: str | None = get_api_key()
         self.scanner: ScannerService | None = None
+        self._scanner_lock = threading.Lock()
+        self._scanner_config: tuple[str, int, int, bool] | None = None
         self.item_keys: set[tuple[str, str]] = set()
-        self.last_results: list[dict] = []
+        self.last_results_by_key: dict[tuple[str, str], dict] = {}
         self.results_lock = threading.Lock()
         self.pending_entries: list[tuple[str, str, str]] = []
         self.current_rpm = DEFAULT_REQUESTS_PER_MINUTE
@@ -146,19 +148,50 @@ class VirusProbeGUI:
 
     def _merge_results(self, new_results: list[dict]) -> None:
         with self.results_lock:
-            result_map = {(r.get("type"), r.get("item")): r for r in self.last_results}
             for result in new_results:
-                result_map[(result.get("type"), result.get("item"))] = result
-            self.last_results = list(result_map.values())
+                key = (str(result.get("type", "")), str(result.get("item", "")))
+                self.last_results_by_key[key] = result
 
     def _upsert_last_result(self, result: dict) -> None:
         with self.results_lock:
-            item = result.get("item")
-            for i, existing in enumerate(self.last_results):
-                if existing.get("type") == result.get("type") and existing.get("item") == item:
-                    self.last_results[i] = result
-                    return
-            self.last_results.append(result)
+            key = (str(result.get("type", "")), str(result.get("item", "")))
+            self.last_results_by_key[key] = result
+
+    def _has_results(self) -> bool:
+        with self.results_lock:
+            return bool(self.last_results_by_key)
+
+    def _results_snapshot(self) -> list[dict]:
+        with self.results_lock:
+            return list(self.last_results_by_key.values())
+
+    def _release_scanner_locked(self) -> None:
+        if self.scanner is not None:
+            self.scanner.close()
+            self.scanner = None
+        self._scanner_config = None
+
+    def _reset_scanner(self) -> None:
+        with self._scanner_lock:
+            self._release_scanner_locked()
+
+    def _acquire_scanner(self, requests_per_minute: int, workers: int, upload_undetected: bool) -> ScannerService:
+        desired = (self.api_key or "", requests_per_minute, workers, upload_undetected)
+        with self._scanner_lock:
+            if self.scanner is not None and self._scanner_config == desired:
+                return self.scanner
+            self._release_scanner_locked()
+            scanner = ScannerService(
+                api_key=self.api_key or "",
+                cache_db=self.cache_db,
+                requests_per_minute=requests_per_minute,
+                max_workers=workers,
+                upload_undetected=upload_undetected,
+            )
+            scanner.init_cache()
+            self.scanner = scanner
+            self._scanner_config = desired
+            return scanner
 
     def _update_upload_action_visibility(self) -> None:
         should_show = self.upload_mode == UPLOAD_MANUAL
@@ -240,6 +273,7 @@ class VirusProbeGUI:
         save_requests_per_minute_to_env(rpm)
         save_workers_to_env(workers)
         save_upload_mode_to_env(mode)
+        self._reset_scanner()
         self._update_upload_indicator()
         self._update_upload_action_visibility()
 
@@ -252,6 +286,7 @@ class VirusProbeGUI:
             save_api_key_to_env(self.api_key)
         else:
             remove_api_key_from_env()
+        self._reset_scanner()
         self._update_api_key_status()
 
     def _clear_cache_dialog(self) -> None:
@@ -312,7 +347,7 @@ class VirusProbeGUI:
         self.view.tree.delete(*self.view.tree.get_children())
         self.item_keys.clear()
         with self.results_lock:
-            self.last_results = []
+            self.last_results_by_key = {}
         self.scan_total = 0
         self.view.set_progress(0, 0)
         self.view.report_button.configure(state="disabled")
@@ -330,8 +365,7 @@ class VirusProbeGUI:
                 self._add_item("file", path)
 
     def _generate_report(self) -> None:
-        with self.results_lock:
-            results_snapshot = list(self.last_results)
+        results_snapshot = self._results_snapshot()
         if not results_snapshot:
             self._show_info("No Results", "Run a scan first to generate a report.")
             return
@@ -372,9 +406,7 @@ class VirusProbeGUI:
             self.view.scan_btn.configure(state="disabled")
             self.view.progress_var.set("Cancelling upload before close...")
             return
-        if self.scanner is not None:
-            self.scanner.close()
-            self.scanner = None
+        self._reset_scanner()
         self.root.destroy()
 
 
