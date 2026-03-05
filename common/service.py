@@ -178,13 +178,8 @@ class ScannerService:
             result = self._hash_error(file_hash, str(exc), file_hash)
             result.update({"item": file_path, "type": "file"})
             return result
-        except ValueError:
-            if self.upload_undetected and self._passes_upload_filter(file_path):
-                if cancel_event is None:
-                    return self._upload_and_scan(file_path, file_hash)
-                return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
-            result = self._not_found_result(file_hash)
-            result.update({"item": file_path, "type": "file"})
+        except ValueError as exc:
+            result = self._error_result(file_path, "file", f"Unexpected VT response: {exc}", file_hash)
             return result
         except Exception as exc:
             result = self._hash_error(file_hash, str(exc), file_hash)
@@ -221,8 +216,8 @@ class ScannerService:
             if exc.code == "NotFoundError":
                 return self._not_found_result(normalized_hash)
             return self._hash_error(normalized_hash, str(exc), normalized_hash)
-        except ValueError:
-            return self._not_found_result(normalized_hash)
+        except ValueError as exc:
+            return self._hash_error(normalized_hash, f"Unexpected VT response: {exc}", normalized_hash)
         except Exception as exc:
             return self._hash_error(normalized_hash, str(exc), normalized_hash)
 

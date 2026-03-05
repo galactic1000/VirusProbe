@@ -153,7 +153,7 @@ class MainWindow:
 
     def show_upload_button(self, visible: bool) -> None:
         if visible and self.upload_action_btn.winfo_manager() != "pack":
-            self.upload_action_btn.pack(side=tk.LEFT, padx=(8, 0))
+            self.upload_action_btn.pack(side=tk.LEFT, padx=(8, 0), before=self.scan_btn)
         if not visible and self.upload_action_btn.winfo_manager() == "pack":
             self.upload_action_btn.pack_forget()
 

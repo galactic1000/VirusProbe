@@ -108,10 +108,10 @@ class ScanCache:
                 "INSERT OR REPLACE INTO scans (hash, stats, timestamp) VALUES (?, ?, ?)",
                 (self._to_bytes(file_hash), self._pack(stats), int(time.time())),
             )
-            self._enforce_row_cap_locked(cursor)
             self._writes_since_trim += 1
             if self._writes_since_trim >= self._TRIM_INTERVAL_WRITES:
                 cursor.execute("DELETE FROM scans WHERE timestamp < ?", (self._cutoff_ts(),))
+                self._enforce_row_cap_locked(cursor)
                 self._writes_since_trim = 0
             conn.commit()
 

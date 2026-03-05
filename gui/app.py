@@ -276,7 +276,8 @@ class VirusProbeGUI:
             self.view.set_row_status(iid, "Uploading...")
         self._begin_busy_state(self._cancel_upload)
         self.is_uploading = True
-        self.view.progress_var.set(f"Uploading {len(entries)} selected file(s)...")
+        self.view.set_progress(0, len(entries))
+        self.view.progress_var.set(f"Uploading 0/{len(entries)}...")
         threading.Thread(target=self._upload_worker, args=(entries,), daemon=True).start()
 
     def _cancel_upload(self) -> None:
@@ -293,10 +294,17 @@ class VirusProbeGUI:
                 upload_undetected=False,
             )
 
+            total = len(entries)
+            completed_ref = [0]
+
             def on_result(result: dict[str, Any], iid: str | None) -> None:
+                completed_ref[0] += 1
+                c = completed_ref[0]
                 if iid is not None:
                     self._safe_after(self.view.set_row_status, iid, self.model.result_status(result))
                 self.model.upsert_result(result)
+                self._safe_after(self.view.set_progress, c, total)
+                self._safe_after(lambda cc=c, t=total: self.view.progress_var.set(f"Uploading {cc}/{t}..."))
 
             run_result = run_upload_workflow(
                 scanner=scanner,

@@ -137,9 +137,6 @@ class AppModel:
         if result.get("threat_level") == "Undetected":
             return "Undetected"
         prefix = "Uploaded - " if result.get("was_uploaded") else ""
-        if result.get("malicious", 0) >= 10:
-            return f"{prefix}Malicious"
-        if result.get("malicious", 0) > 0 or result.get("suspicious", 0) >= 3:
-            return f"{prefix}Suspicious"
-        return f"{prefix}Clean"
+        level = ScannerService.classify_threat(result.get("malicious", 0), result.get("suspicious", 0))
+        return f"{prefix}{level}"
 

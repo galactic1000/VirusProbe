@@ -51,6 +51,14 @@ def scan_many(
             if cancel_event is not None and cancel_event.is_set():
                 for future in list(future_to_idx):
                     future.cancel()
+                for future, idx in list(future_to_idx.items()):
+                    try:
+                        result = future.result()
+                        results[idx] = result
+                        if on_result is not None:
+                            on_result(result)
+                    except Exception:
+                        pass
                 break
             while len(future_to_idx) < max_workers and _submit_next():
                 pass
