@@ -1,0 +1,99 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+        include:
+          - os: windows-latest
+            artifact_suffix: windows
+            cli_name: VirusProbe-CLI.exe
+            gui_name: VirusProbe-GUI.exe
+          - os: ubuntu-latest
+            artifact_suffix: linux
+            cli_name: VirusProbe-CLI
+            gui_name: VirusProbe-GUI
+          - os: macos-latest
+            artifact_suffix: macos
+            cli_name: VirusProbe-CLI
+            gui_name: VirusProbe-GUI
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-cli.txt
+          pip install -r requirements-gui.txt
+          pip install pyinstaller
+
+      - name: Build CLI executable
+        run: pyinstaller --onefile --name ${{ matrix.cli_name }} cli.py
+
+      - name: Build GUI executable
+        run: pyinstaller --onefile --name ${{ matrix.gui_name }} --windowed gui.py
+
+      - name: Upload CLI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.artifact_suffix }}
+          path: dist/${{ matrix.cli_name }}
+
+      - name: Upload GUI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gui-${{ matrix.artifact_suffix }}
+          path: dist/${{ matrix.gui_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure
+        run: ls -R artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          cp artifacts/cli-windows/VirusProbe-CLI.exe release/
+          cp artifacts/gui-windows/VirusProbe-GUI.exe release/
+          cp artifacts/cli-linux/VirusProbe-CLI release/VirusProbe-CLI-linux
+          cp artifacts/gui-linux/VirusProbe-GUI release/VirusProbe-GUI-linux
+          cp artifacts/cli-macos/VirusProbe-CLI release/VirusProbe-CLI-macos
+          cp artifacts/gui-macos/VirusProbe-GUI release/VirusProbe-GUI-macos
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
