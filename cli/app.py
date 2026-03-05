@@ -127,7 +127,6 @@ def _handle_admin_actions(
 
 
 def _build_upload_filter(patterns: list[str]) -> Callable[[str], bool]:
-    """Builds a file-path matcher for upload-filter patterns."""
     simple: list[str] = []
     path_pats: list[str] = []
     for pat in patterns:
