@@ -1,13 +1,10 @@
-"""Core scan service shared by CLI and GUI."""
+﻿"""Core scan service shared by CLI and GUI."""
 
 from __future__ import annotations
 
 import hashlib
 import threading
-import time
-from collections import deque
-from collections.abc import Callable, Iterable
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -15,43 +12,15 @@ from typing import Any
 import vt
 
 from .cache import ScanCache
+from .rate_limit import RateLimiter
+from .service_scan import ScanOrchestrationMixin
+from .service_upload import UploadFlowMixin
 
 DEFAULT_SCAN_WORKERS = 4
 DEFAULT_REQUESTS_PER_MINUTE = 4
 _HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
 
-
-class _RateLimiter:
-    """Thread-safe sliding-window rate limiter.
-
-    Tracks the timestamps of recent acquisitions and blocks callers until
-    a slot becomes available within the rolling *period* window.
-    Set *max_calls=0* to disable limiting entirely.
-    """
-
-    def __init__(self, max_calls: int, period: float = 60.0) -> None:
-        self._max_calls = max_calls
-        self._period = period
-        self._timestamps: deque[float] = deque()
-        self._lock = threading.Lock()
-
-    def acquire(self) -> None:
-        """Block until a request slot is available within the window."""
-        if self._max_calls <= 0:
-            return
-        while True:
-            with self._lock:
-                now = time.monotonic()
-                while self._timestamps and now - self._timestamps[0] >= self._period:
-                    self._timestamps.popleft()
-                if len(self._timestamps) < self._max_calls:
-                    self._timestamps.append(now)
-                    return
-                wait = self._timestamps[0] + self._period - now
-            time.sleep(max(0.0, wait))
-
-
-class ScannerService:
+class ScannerService(UploadFlowMixin, ScanOrchestrationMixin):
     """VirusTotal scanner backed by ScanCache."""
 
     def __init__(
@@ -63,9 +32,17 @@ class ScannerService:
         memory_cache_max_entries: int = 512,
         max_workers: int | None = None,
         requests_per_minute: int = DEFAULT_REQUESTS_PER_MINUTE,
+        upload_unknown: bool = False,
+        upload_filter: Callable[[str], bool] | None = None,
     ) -> None:
         self.api_key = api_key
-        effective_workers = max_workers if max_workers is not None else (requests_per_minute if requests_per_minute > 0 else DEFAULT_SCAN_WORKERS)
+        self.upload_unknown = upload_unknown
+        self.upload_filter = upload_filter
+        effective_workers = (
+            max_workers
+            if max_workers is not None
+            else (requests_per_minute if requests_per_minute > 0 else DEFAULT_SCAN_WORKERS)
+        )
         self.max_workers = max(1, int(effective_workers))
         self._cache = ScanCache(
             cache_db=cache_db,
@@ -73,10 +50,11 @@ class ScannerService:
             cache_max_rows=cache_max_rows,
             memory_cache_max_entries=memory_cache_max_entries,
         )
-        self._rate_limiter = _RateLimiter(max_calls=max(0, int(requests_per_minute)))
+        self._rate_limiter = RateLimiter(max_calls=max(0, int(requests_per_minute)))
         self._client_local = threading.local()
         self._clients: list[vt.Client] = []
         self._clients_lock = threading.Lock()
+        self._requests_per_minute = max(0, int(requests_per_minute))
 
     def init_cache(self) -> None:
         self._cache.init()
@@ -104,7 +82,6 @@ class ScannerService:
 
     @staticmethod
     def hash_file(file_path: str) -> str:
-        """Returns SHA256 hash for a file."""
         hasher = hashlib.sha256()
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(1024 * 1024), b""):
@@ -129,6 +106,24 @@ class ScannerService:
             "status": "error",
             "message": message,
             "was_cached": False,
+            "was_uploaded": False,
+        }
+
+    @staticmethod
+    def _cancelled_result(item: str, item_type: str, file_hash: str = "") -> dict[str, Any]:
+        return {
+            "item": item,
+            "type": item_type,
+            "file_hash": file_hash,
+            "malicious": 0,
+            "suspicious": 0,
+            "harmless": 0,
+            "undetected": 0,
+            "threat_level": "Error",
+            "status": "cancelled",
+            "message": "Cancelled by user",
+            "was_cached": False,
+            "was_uploaded": False,
         }
 
     @classmethod
@@ -149,93 +144,71 @@ class ScannerService:
             "status": "undetected",
             "message": "No VirusTotal record found",
             "was_cached": False,
+            "was_uploaded": False,
         }
 
-    def _scan_many(
-        self,
-        scan_func: Callable[[str], dict[str, Any]],
-        items: Iterable[str],
-        on_result: Callable[[dict[str, Any]], None] | None = None,
-        cancel_event: threading.Event | None = None,
-    ) -> list[dict[str, Any]]:
-        item_list = list(items)
-        if not item_list:
-            return []
+    def scan_file(self, file_path: str, cancel_event: threading.Event | None = None) -> dict[str, Any]:
         if cancel_event is not None and cancel_event.is_set():
-            return []
-        if len(item_list) == 1:
-            if cancel_event is not None and cancel_event.is_set():
-                return []
-            result = scan_func(item_list[0])
-            if on_result is not None:
-                on_result(result)
-            return [result]
-        results: list[dict[str, Any] | None] = [None] * len(item_list)
-        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            future_to_idx: dict[Any, int] = {}
-            next_idx = 0
-            while next_idx < len(item_list) and len(future_to_idx) < self.max_workers:
-                future = executor.submit(scan_func, item_list[next_idx])
-                future_to_idx[future] = next_idx
-                next_idx += 1
-
-            while future_to_idx:
-                done, _ = wait(tuple(future_to_idx.keys()), return_when=FIRST_COMPLETED)
-                for future in done:
-                    idx = future_to_idx.pop(future)
-                    result = future.result()
-                    results[idx] = result
-                    if on_result is not None:
-                        on_result(result)
-                if cancel_event is not None and cancel_event.is_set():
-                    for future in list(future_to_idx):
-                        future.cancel()
-                    break
-                while next_idx < len(item_list) and len(future_to_idx) < self.max_workers:
-                    future = executor.submit(scan_func, item_list[next_idx])
-                    future_to_idx[future] = next_idx
-                    next_idx += 1
-        return [r for r in results if r is not None]
-
-    def scan_files(
-        self,
-        file_paths: Iterable[str],
-        on_result: Callable[[dict[str, Any]], None] | None = None,
-        cancel_event: threading.Event | None = None,
-    ) -> list[dict[str, Any]]:
-        return self._scan_many(self.scan_file, file_paths, on_result=on_result, cancel_event=cancel_event)
-
-    def scan_hashes(
-        self,
-        hashes: Iterable[str],
-        on_result: Callable[[dict[str, Any]], None] | None = None,
-        cancel_event: threading.Event | None = None,
-    ) -> list[dict[str, Any]]:
-        return self._scan_many(self.scan_hash, hashes, on_result=on_result, cancel_event=cancel_event)
-
-    def scan_file(self, file_path: str) -> dict[str, Any]:
-        """Scans a file path by hash."""
+            return self._cancelled_result(file_path, "file")
         path = Path(file_path)
         if not path.exists():
             return self._error_result(file_path, "file", f"File '{file_path}' does not exist")
         if not path.is_file():
             return self._error_result(file_path, "file", f"'{file_path}' is not a file")
-        return self._scan_file_verified(file_path)
+        return self._scan_file_verified(file_path, cancel_event=cancel_event)
 
-    def _scan_file_verified(self, file_path: str) -> dict[str, Any]:
+    def _scan_file_verified(self, file_path: str, cancel_event: threading.Event | None = None) -> dict[str, Any]:
         try:
             file_hash = self.hash_file(file_path)
         except OSError as exc:
             return self._error_result(file_path, "file", str(exc))
-        result = self.scan_hash(file_hash)
-        result.update({"item": file_path, "type": "file", "file_hash": file_hash})
-        return result
+
+        try:
+            vt_response, was_cached = self._query_virustotal(file_hash)
+            malicious, suspicious, harmless, undetected = self._extract_stats(vt_response)
+        except vt.APIError as exc:
+            if exc.code == "NotFoundError" and self.upload_unknown and self._passes_upload_filter(file_path):
+                if cancel_event is None:
+                    return self._upload_and_scan(file_path, file_hash)
+                return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
+            if exc.code == "NotFoundError":
+                result = self._not_found_result(file_hash)
+                result.update({"item": file_path, "type": "file"})
+                return result
+            result = self._hash_error(file_hash, str(exc), file_hash)
+            result.update({"item": file_path, "type": "file"})
+            return result
+        except ValueError:
+            if self.upload_unknown and self._passes_upload_filter(file_path):
+                if cancel_event is None:
+                    return self._upload_and_scan(file_path, file_hash)
+                return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
+            result = self._not_found_result(file_hash)
+            result.update({"item": file_path, "type": "file"})
+            return result
+        except Exception as exc:
+            result = self._hash_error(file_hash, str(exc), file_hash)
+            result.update({"item": file_path, "type": "file"})
+            return result
+
+        return {
+            "item": file_path,
+            "type": "file",
+            "file_hash": file_hash,
+            "malicious": malicious,
+            "suspicious": suspicious,
+            "harmless": harmless,
+            "undetected": undetected,
+            "threat_level": self.classify_threat(malicious, suspicious),
+            "status": "ok",
+            "message": "Using cached result" if was_cached else "Queried VirusTotal API",
+            "was_cached": was_cached,
+            "was_uploaded": False,
+        }
 
     def scan_hash(self, file_hash: str) -> dict[str, Any]:
-        """Scans a hash and returns a normalized result payload."""
         if not isinstance(file_hash, str):
             return self._hash_error(file_hash, "Invalid SHA-256 hash format")
-
         normalized_input = file_hash.strip()
         if not self.is_sha256(normalized_input):
             return self._hash_error(normalized_input, "Invalid SHA-256 hash format", normalized_input.lower())
@@ -261,43 +234,22 @@ class ScannerService:
             "suspicious": suspicious,
             "harmless": harmless,
             "undetected": undetected,
-            "threat_level": self.classify_threat(malicious),
+            "threat_level": self.classify_threat(malicious, suspicious),
             "status": "ok",
             "message": "Using cached result" if was_cached else "Queried VirusTotal API",
             "was_cached": was_cached,
+            "was_uploaded": False,
         }
-
-    def scan_directory(
-        self,
-        directory: str,
-        recursive: bool = False,
-        on_result: Callable[[dict[str, Any]], None] | None = None,
-        cancel_event: threading.Event | None = None,
-    ) -> list[dict[str, Any]]:
-        """Scans files in a directory concurrently."""
-        path = Path(directory)
-        if not path.exists():
-            result = self._error_result(directory, "directory", f"Directory '{directory}' does not exist")
-            if on_result is not None:
-                on_result(result)
-            return [result]
-        if not path.is_dir():
-            result = self._error_result(directory, "directory", f"'{directory}' is not a directory")
-            if on_result is not None:
-                on_result(result)
-            return [result]
-        files = [str(f) for f in (path.rglob("*") if recursive else path.iterdir()) if f.is_file()]
-        return self.scan_files(files, on_result=on_result, cancel_event=cancel_event)
 
     @staticmethod
     def is_sha256(value: str) -> bool:
         return len(value) == 64 and all(c in _HEX_CHARS for c in value)
 
     @staticmethod
-    def classify_threat(malicious_count: int) -> str:
-        if malicious_count >= 10:
+    def classify_threat(malicious: int, suspicious: int = 0) -> str:
+        if malicious >= 10:
             return "Malicious"
-        if malicious_count > 0:
+        if malicious > 0 or suspicious >= 3:
             return "Suspicious"
         return "Clean"
 
@@ -319,7 +271,6 @@ class ScannerService:
         cached = self._cache.get(file_hash)
         if cached is not None:
             return cached, True
-
         self._rate_limiter.acquire()
         client = self._get_client()
         response_json = client.get(f"/files/{file_hash}").json()

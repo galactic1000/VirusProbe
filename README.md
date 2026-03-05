@@ -5,14 +5,30 @@ It provides both a CLI and a Tkinter GUI, with local caching to reduce repeat AP
 
 ## Features
 
-- Scan one or more files
-- Scan one or more SHA-256 hashes
-- Scan directories (optional recursive mode)
-- Combine directory scans with extra hash scans in one run
-- Generate reports in `json`, `csv`, `txt`, or `md`
-- Save/remove API key from `.env`
-- Clear local SQLite cache from CLI or GUI
-- Configurable rate limit and worker count in GUI, persisted to `.env`
+**Scanning**
+- Scan individual files, whole directories (with optional recursion), or bare SHA-256 hashes
+- Mix directory scans with extra hash inputs in a single run
+- Concurrent scanning with a configurable worker count and per-minute rate limit
+
+**Upload**
+- Optionally upload files with no VirusTotal record and wait for real engine verdicts
+- Three upload modes: `never` (default), `manual` (Upload button per row in GUI), `auto` (automatic during scan)
+- CLI `--upload-filter` accepts glob patterns to limit which unknown files get uploaded
+
+**Results & Reporting**
+- Verdicts: `Malicious`, `Suspicious`, `Clean`, `Undetected`, `Error`
+- Export scan reports in `json`, `csv`, `txt`, or `md`
+- Two-level result cache: in-memory LRU + SQLite (uploaded results cached too)
+
+**CLI**
+- Streaming per-item output as results arrive
+- Graceful Ctrl+C cancellation (exits with code `130`)
+- Save, load, and remove API key via `.env`
+
+**GUI**
+- Drag-and-drop file support
+- Live scan progress bar and per-row status updates
+- Advanced settings dialog (workers, rate limit, upload mode) persisted to `.env`
 
 ## Requirements
 
@@ -100,6 +116,8 @@ python cli.py [options]
 | `-s, --hash, --hashes` | One or more SHA-256 hashes to scan |
 | `-d, --directory, --dir` | Scan all files in a directory |
 | `-r, --recursive` | Recurse subdirectories (directory mode only) |
+| `-u, --upload` | Upload files not found in VirusTotal and wait for analysis results (uses extra API quota) |
+| `--upload-filter GLOB [GLOB ...]` | Only upload files matching these glob patterns (requires `--upload`). Patterns without path separators match filename only (e.g. `*.exe`); patterns with separators match the full path (e.g. `src/*.dll`) |
 | `-o, --output [OUTPUT]` | Write report to file; when used without value, auto-generates `scan_report_YYYYMMDD_HHMMSS.<format>` |
 | `--format {json,csv,txt,md}` | Report format for `--output` (default: `json`) |
 | `--requests-per-minute N` | Max VirusTotal API requests per minute (default: `4`, `0` = unlimited) |
@@ -167,6 +185,24 @@ Scan with a custom rate limit:
 python cli.py -d /path/to/folder --requests-per-minute 10
 ```
 
+Upload unknown files (not found in VirusTotal):
+
+```bash
+python cli.py -f sample.exe --upload
+```
+
+Upload only `.exe` and `.dll` files that are unknown:
+
+```bash
+python cli.py -d /path/to/folder --upload --upload-filter "*.exe" "*.dll"
+```
+
+Upload unknown files inside a specific subdirectory:
+
+```bash
+python cli.py -d /path/to/folder --upload --upload-filter "suspicious/*.bin"
+```
+
 Clear cache only:
 
 ```bash
@@ -185,9 +221,12 @@ python cli.py --clear-cache
 - `Advanced...` opens the Advanced Scan Settings dialog:
   - **Workers**: concurrent scan threads (default: `4`, range: `1`-`50`)
   - **Req/min**: VirusTotal API rate limit (default: `4`, `0` = unlimited for premium keys)
+  - **Enable upload to VirusTotal for unknown files** (uses extra API quota): when checked, files not found in VirusTotal can be uploaded for scanning
+    - **Auto-upload all unknown items**: when checked, uploads happen automatically during the scan (`auto` mode); when unchecked, an `Upload` button appears after the scan so you can upload selected rows manually (`manual` mode)
   - Settings are saved to `.env` on Apply and restored on next launch.
 - `Scan` runs all queued items.
 - During an active scan, `Scan` changes to `Cancel` so you can stop remaining queued work.
+- When upload mode is `manual` and the scan finds undetected file rows, an `Upload` button appears in the toolbar. Select one or more `Undetected` file rows and click `Upload` to submit them to VirusTotal.
 - Bottom-right progress bar tracks completed items for the current scan.
 - `Generate Report...` is enabled after the first completed scan.
 - Report dialog supports report name, format, and destination folder.
@@ -202,6 +241,7 @@ python cli.py --clear-cache
 | `VIRUSTOTAL_API_KEY` | Alternative name for the API key (checked second) | - |
 | `VT_REQUESTS_PER_MINUTE` | Max VirusTotal API calls per 60-second window. `0` = unlimited (premium keys). GUI Advanced dialog writes this on Apply. | `4` |
 | `VT_WORKERS` | Concurrent scan threads. Must be `>= 1`. GUI Advanced dialog writes this on Apply. | `4` |
+| `VT_UPLOAD_UNKNOWN` | Upload mode for files not found in VirusTotal. `never` = disabled, `manual` = Upload button shown after scan, `auto` = upload automatically during scan. GUI Advanced dialog writes this on Apply. | `never` |
 
 Example `.env`:
 
@@ -209,6 +249,7 @@ Example `.env`:
 VT_API_KEY=your_api_key_here
 VT_REQUESTS_PER_MINUTE=4
 VT_WORKERS=4
+VT_UPLOAD_UNKNOWN=never
 ```
 
 ## API Key Resolution
@@ -241,13 +282,15 @@ Both CLI `--clear-cache` and GUI `Clear Cache` clear:
 
 ## Verdict Criteria
 
-Per item classification is based on VirusTotal malicious engine count:
+Per item classification is based on VirusTotal engine counts:
 
 - `Malicious`: `malicious >= 10`
-- `Suspicious`: `1 <= malicious <= 9`
-- `Clean`: `malicious == 0` with known result
+- `Suspicious`: `malicious >= 1` (but `< 10`), or `suspicious >= 3`
+- `Clean`: `malicious == 0` and `suspicious < 3` with known result
 - `Undetected`: VirusTotal has no record for that SHA-256 hash
 - `Error`: invalid input or runtime/API error
+
+Items uploaded to VirusTotal are prefixed with `Uploaded -` in the status column (e.g. `Uploaded - Clean`).
 
 Displayed engine counters:
 
@@ -286,7 +329,9 @@ pytest -q tests/test_service.py
 Current automated coverage:
 
 - `tests/test_cache.py`: cache behavior, cleanup, row caps, LRU
-- `tests/test_service.py`: service logic, hash validation, API error mapping, mixed scan paths
+- `tests/test_service_scan.py`: scan orchestration, hash validation, API error mapping, mixed scan paths
+- `tests/test_service_upload.py`: upload flow, polling, filter logic, size thresholds
+- `tests/test_service_rate_limit.py`: rate limiter behavior
 - `tests/test_cli_parser.py`: parser and flag behavior
 - `tests/test_cli_behavior.py`: CLI runtime behavior and admin paths
 - `tests/test_reporting.py`: report writers and output path handling
@@ -304,13 +349,18 @@ VirusProbe/
 |   `-- display.py
 |-- gui/
 |   |-- app.py
-|   `-- dialogs.py
+|   |-- controllers.py
+|   |-- dialogs.py
+|   `-- view.py
 |-- common/
 |   |-- __init__.py
 |   |-- cache.py
 |   |-- env.py
+|   |-- rate_limit.py
 |   |-- reporting.py
-|   `-- service.py
+|   |-- service.py
+|   |-- service_scan.py
+|   `-- service_upload.py
 |-- cache/
 |   `-- vt_cache.db
 |-- tests/
@@ -318,7 +368,9 @@ VirusProbe/
 |   |-- test_cli_behavior.py
 |   |-- test_cli_parser.py
 |   |-- test_reporting.py
-|   `-- test_service.py
+|   |-- test_service_scan.py
+|   |-- test_service_upload.py
+|   `-- test_service_rate_limit.py
 |-- requirements-cli.txt
 |-- requirements-gui.txt
 |-- requirements-test.txt

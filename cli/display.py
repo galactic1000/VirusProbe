@@ -90,6 +90,8 @@ def print_run_context(title: str, color: str = Fore.CYAN) -> None:
 
 
 def _verdict_color(threat_level: str) -> str:
+    if threat_level == "Cancelled":
+        return Fore.MAGENTA
     if threat_level == "Malicious":
         return Fore.RED
     if threat_level == "Suspicious":
@@ -124,11 +126,20 @@ def print_result(result: dict, index: int | None = None, total: int | None = Non
     if result.get("status") == "undetected":
         print("\n" + format_colored("Undetected: No VirusTotal record found", Fore.YELLOW))
         return
+    if result.get("status") == "cancelled":
+        print("\n" + format_colored("Cancelled by user", Fore.MAGENTA))
+        return
     if result.get("status") == "error":
         print("\n" + format_colored(f"Error: {result.get('message', 'Unknown error')}", Fore.RED))
         return
 
-    print("\n" + format_colored(result.get("message", ""), Fore.CYAN if result.get("was_cached") else Fore.BLUE))
+    if result.get("was_uploaded"):
+        msg_color = Fore.MAGENTA
+    elif result.get("was_cached"):
+        msg_color = Fore.CYAN
+    else:
+        msg_color = Fore.BLUE
+    print("\n" + format_colored(result.get("message", ""), msg_color))
     detection_total = (
         result.get("malicious", 0) + result.get("suspicious", 0)
         + result.get("harmless", 0) + result.get("undetected", 0)

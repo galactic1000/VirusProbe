@@ -15,6 +15,12 @@ RPM_ENV_VAR = "VT_REQUESTS_PER_MINUTE"
 
 WORKERS_ENV_VAR = "VT_WORKERS"
 
+UPLOAD_UNKNOWN_ENV_VAR = "VT_UPLOAD_UNKNOWN"
+# Valid values for UPLOAD_UNKNOWN_ENV_VAR:
+UPLOAD_NEVER = "never"
+UPLOAD_MANUAL = "manual"
+UPLOAD_AUTO = "auto"
+
 dotenv.load_dotenv(DOTENV_PATH, override=False)
 
 
@@ -55,6 +61,22 @@ def get_workers() -> int | None:
 def save_workers_to_env(workers: int) -> None:
     dotenv.set_key(DOTENV_PATH, WORKERS_ENV_VAR, str(workers), quote_mode="never")
     os.environ[WORKERS_ENV_VAR] = str(workers)
+
+
+def get_upload_mode() -> str:
+    """Returns one of 'never', 'manual', or 'auto'."""
+    raw = os.environ.get(UPLOAD_UNKNOWN_ENV_VAR, "").strip().lower()
+    if raw in (UPLOAD_MANUAL, UPLOAD_AUTO):
+        return raw
+    return UPLOAD_NEVER
+
+
+def save_upload_mode_to_env(mode: str) -> None:
+    """Saves upload mode ('never', 'manual', or 'auto') to .env."""
+    if mode not in (UPLOAD_NEVER, UPLOAD_MANUAL, UPLOAD_AUTO):
+        mode = UPLOAD_NEVER
+    dotenv.set_key(DOTENV_PATH, UPLOAD_UNKNOWN_ENV_VAR, mode, quote_mode="never")
+    os.environ[UPLOAD_UNKNOWN_ENV_VAR] = mode
 
 
 def remove_api_key_from_env() -> bool:

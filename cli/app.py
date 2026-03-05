@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -32,10 +34,30 @@ def _build_parser() -> argparse.ArgumentParser:
         description="VirusProbe - scan files or SHA-256 hashes using VirusTotal",
         add_help=True,
     )
+    # --- Scan targets ---
     parser.add_argument("-f", "--file", "--files", dest="files", nargs="+", help="One or more file paths to scan")
     parser.add_argument("-s", "--hash", "--hashes", dest="hashes", nargs="+", help="One or more SHA-256 hashes to scan")
     parser.add_argument("-d", "--directory", "--dir", help="Scan all files in a directory")
     parser.add_argument("-r", "--recursive", action="store_true", help="When using --directory, scan subdirectories recursively")
+
+    # --- Upload options ---
+    parser.add_argument(
+        "-u", "--upload",
+        action="store_true",
+        help="Upload files not found in VirusTotal and wait for analysis results (uses extra API quota)",
+    )
+    parser.add_argument(
+        "--upload-filter",
+        nargs="+",
+        metavar="GLOB",
+        help=(
+            "Only upload files matching these glob patterns (requires --upload). "
+            "Patterns without path separators match the filename only (e.g. *.exe). "
+            "Patterns with separators match the full path (e.g. src/*.dll)."
+        ),
+    )
+
+    # --- Output ---
     parser.add_argument(
         "-o",
         "--output",
@@ -45,6 +67,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write report to file (default: scan_report_YYYYMMDD_HHMMSS.<format>)",
     )
     parser.add_argument("--format", choices=["json", "csv", "txt", "md"], help="Report format for report output (default: json)")
+
+    # --- Performance ---
     parser.add_argument("--workers", type=int, default=None, metavar="WORKERS", help="Concurrent scan workers (default: matches --requests-per-minute)")
     parser.add_argument(
         "--requests-per-minute",
@@ -53,6 +77,8 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help=f"Max VirusTotal API requests per minute (default: {DEFAULT_REQUESTS_PER_MINUTE}, 0 = unlimited)",
     )
+
+    # --- API key / cache management ---
     parser.add_argument("--api-key", help="VirusTotal API key (overrides env/.env)")
     parser.add_argument("--save-api-key", action="store_true", help="Save --api-key into .env for future runs")
     parser.add_argument("--clear-api-key", action="store_true", help="Remove saved API key from .env")
@@ -91,6 +117,35 @@ def _handle_admin_actions(
         print(f"Cleared SQLite cache ({deleted} entr{'y' if deleted == 1 else 'ies'}).")
 
     return has_admin_action
+
+
+def _build_upload_filter(patterns: list[str]):
+    """Returns a callable that returns True if a file path matches any of the glob patterns.
+
+    Patterns without path separators (e.g. *.exe) are matched against the filename only.
+    Patterns with separators (e.g. src/*.dll) are matched against the resolved full path
+    using Path.match(), which matches from the right so subdir/*.dll works anywhere.
+    """
+    simple: list[str] = []
+    path_pats: list[str] = []
+    for pat in patterns:
+        if "/" in pat or "\\" in pat:
+            path_pats.append(pat)
+        else:
+            simple.append(pat)
+
+    def _matches(file_path: str) -> bool:
+        p = Path(file_path).resolve()
+        name = p.name
+        for pat in simple:
+            if fnmatch.fnmatch(name, pat):
+                return True
+        for pat in path_pats:
+            if p.match(pat):
+                return True
+        return False
+
+    return _matches
 
 
 def _filter_existing_files(files: list[str]) -> tuple[list[str], list[str]]:
@@ -168,23 +223,52 @@ def main() -> None:
         total += 1  # scan_directory returns one error result for a bad path
 
     completed = [0]
+    results: list[dict] = []
 
     def on_result(result: dict) -> None:
+        results.append(result)
         completed[0] += 1
         print_result(result, index=completed[0], total=total)
 
-    results: list[dict] = []
-    service = ScannerService(api_key=api_key, cache_db=CACHE_DB, max_workers=args.workers, requests_per_minute=args.requests_per_minute)
+    if args.upload_filter and not args.upload:
+        parser.error("--upload-filter requires --upload")
+    upload_filter = _build_upload_filter(args.upload_filter) if args.upload_filter else None
+    if args.upload:
+        if args.upload_filter:
+            print(format_colored(f"Upload mode: unknown files matching {args.upload_filter} will be submitted to VirusTotal.", Fore.YELLOW))
+        else:
+            print(format_colored("Upload mode: unknown files will be submitted to VirusTotal for scanning.", Fore.YELLOW))
+    service = ScannerService(api_key=api_key, cache_db=CACHE_DB, max_workers=args.workers, requests_per_minute=args.requests_per_minute, upload_unknown=args.upload, upload_filter=upload_filter)
+    cancel_event = threading.Event()
+    cancelled = False
     try:
         service.init_cache()
 
-        if args.directory:
-            results.extend(service.scan_directory(args.directory, recursive=args.recursive, on_result=on_result))
-        if file_list:
-            results.extend(service.scan_files(file_list, on_result=on_result))
-        if hash_list:
-            results.extend(service.scan_hashes(hash_list, on_result=on_result))
+        def _run_scan(call):
+            before_results = len(results)
+            before_completed = completed[0]
+            batch = call()
+            if len(results) == before_results and isinstance(batch, list) and batch:
+                results.extend(batch)
+                if completed[0] == before_completed:
+                    for item in batch:
+                        completed[0] += 1
+                        print_result(item, index=completed[0], total=total)
+
+        try:
+            if args.directory:
+                _run_scan(lambda: service.scan_directory(args.directory, recursive=args.recursive, on_result=on_result, cancel_event=cancel_event))
+            if file_list and not cancel_event.is_set():
+                _run_scan(lambda: service.scan_files(file_list, on_result=on_result, cancel_event=cancel_event))
+            if hash_list and not cancel_event.is_set():
+                _run_scan(lambda: service.scan_hashes(hash_list, on_result=on_result, cancel_event=cancel_event))
+        except KeyboardInterrupt:
+            cancel_event.set()
+            cancelled = True
+            print(format_colored("Cancellation requested. Finishing in-flight work...", Fore.YELLOW))
         if not results:
+            if cancelled:
+                sys.exit(130)
             return
 
         print_scan_summary(results)
@@ -194,5 +278,7 @@ def main() -> None:
     finally:
         service.close()
 
+    if cancelled:
+        sys.exit(130)
     if any(r.get("status") == "error" for r in results):
         sys.exit(1)

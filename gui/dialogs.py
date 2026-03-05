@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import Callable
+import tkinter as tk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from common import ScannerService, write_report
+from common import ScannerService, UPLOAD_AUTO, UPLOAD_MANUAL, UPLOAD_NEVER, write_report
 
 PORTABLE_INVALID_CHARS = set('/\\:*?"<>|')
 
@@ -274,8 +274,16 @@ def show_add_hash_dialog(parent: tk.Tk) -> str | None:
     return value.lower()
 
 
-def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int) -> tuple[int, int] | None:
-    """Shows Advanced Scan Settings. Returns (rpm, workers) on Apply, None on Cancel."""
+def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int, current_upload_mode: str = "never") -> tuple[int, int, str] | None:
+    """Shows Advanced Scan Settings.
+
+    Returns (rpm, workers, upload_mode) on Apply, None on Cancel.
+    upload_mode is one of 'never', 'manual', 'auto'.
+    Checkbox mapping:
+      main OFF              -> 'never'
+      main ON, auto OFF     -> 'manual'  (Upload button appears after scan)
+      main ON, auto ON      -> 'auto'    (upload happens automatically)
+    """
     dlg = tk.Toplevel(parent)
     dlg.title("Advanced Scan Settings")
     dlg.resizable(False, False)
@@ -284,7 +292,9 @@ def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int) 
 
     rpm_var = tk.StringVar(value=str(current_rpm))
     workers_var = tk.StringVar(value=str(current_workers))
-    result: dict[str, tuple[int, int]] = {}
+    upload_enabled_var = tk.BooleanVar(value=current_upload_mode in (UPLOAD_MANUAL, UPLOAD_AUTO))
+    auto_upload_var = tk.BooleanVar(value=current_upload_mode == UPLOAD_AUTO)
+    result: dict[str, tuple[int, int, str]] = {}
 
     body = ttk.Frame(dlg, padding=(20, 16, 20, 12))
     body.pack(fill=tk.BOTH, expand=True)
@@ -292,8 +302,37 @@ def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int) 
     ttk.Label(body, text="Workers:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
     ttk.Spinbox(body, from_=1, to=50, textvariable=workers_var, width=6).grid(row=0, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
 
-    ttk.Label(body, text="Req/min (0 = unlimited):").grid(row=1, column=0, sticky=tk.W, pady=(0, 12))
-    ttk.Spinbox(body, from_=0, to=500, textvariable=rpm_var, width=6).grid(row=1, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 12))
+    ttk.Label(body, text="Req/min (0 = unlimited):").grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
+    ttk.Spinbox(body, from_=0, to=500, textvariable=rpm_var, width=6).grid(row=1, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
+
+    ttk.Separator(body, orient=tk.HORIZONTAL).grid(row=2, column=0, columnspan=2, sticky=tk.EW, pady=(4, 10))
+
+    # Main upload checkbox
+    upload_chk = ttk.Checkbutton(body, text="Enable upload to VirusTotal for unknown files (uses extra API quota)", variable=upload_enabled_var)
+    upload_chk.grid(row=3, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
+
+    # Sub-option (indented, disabled when main is off)
+    sub_frame = ttk.Frame(body)
+    sub_frame.grid(row=4, column=0, columnspan=2, sticky=tk.W, padx=(20, 0), pady=(0, 4))
+
+    auto_chk = ttk.Checkbutton(sub_frame, text="Auto-upload all unknown items", variable=auto_upload_var)
+    auto_chk.pack(anchor=tk.W)
+    desc_lbl = ttk.Label(
+        sub_frame,
+        text="When checked: files are uploaded automatically (auto).\nWhen unchecked: an Upload button appears after the scan (manual).\nResults are always cached locally.",
+        foreground="gray",
+    )
+    desc_lbl.pack(anchor=tk.W, pady=(2, 0))
+
+    def _toggle_sub(*_: object) -> None:
+        enabled = upload_enabled_var.get()
+        auto_chk.configure(state=tk.NORMAL if enabled else tk.DISABLED)
+        desc_lbl.configure(foreground="black" if enabled else "gray")
+        if not enabled:
+            auto_upload_var.set(False)
+
+    upload_enabled_var.trace_add("write", _toggle_sub)
+    _toggle_sub()  # apply initial state
 
     ttk.Separator(dlg, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
@@ -309,7 +348,13 @@ def show_advanced_dialog(parent: tk.Tk, current_rpm: int, current_workers: int) 
             rpm = max(0, int(rpm_var.get()))
         except ValueError:
             rpm = current_rpm
-        result["values"] = (rpm, workers)
+        if not upload_enabled_var.get():
+            mode = UPLOAD_NEVER
+        elif auto_upload_var.get():
+            mode = UPLOAD_AUTO
+        else:
+            mode = UPLOAD_MANUAL
+        result["values"] = (rpm, workers, mode)
         dlg.destroy()
 
     ttk.Button(btns, text="Cancel", command=dlg.destroy).pack(side=tk.RIGHT)
