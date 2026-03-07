@@ -29,7 +29,7 @@ def test_output_flag_parsing(argv, expected) -> None:
 
 
 @pytest.mark.parametrize("rpm_flags,expected", [
-    ([], 4),
+    ([], None),
     (["--requests-per-minute", "0"], 0),
     (["--requests-per-minute", "60"], 60),
 ])

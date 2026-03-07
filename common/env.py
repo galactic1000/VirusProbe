@@ -49,8 +49,8 @@ def save_api_key_to_env(api_key: str) -> None:
 
 def get_requests_per_minute() -> int | None:
     raw = os.environ.get(RPM_ENV_VAR, "").strip()
-    if raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit()):
-        return max(0, int(raw))
+    if raw.isdigit():
+        return int(raw)
     return None
 
 

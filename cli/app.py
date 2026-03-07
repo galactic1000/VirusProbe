@@ -12,7 +12,17 @@ from typing import Callable
 
 from colorama import Fore, init
 
-from common import CACHE_DB, ScannerService, get_api_key, get_upload_timeout_minutes, remove_api_key_from_env, save_api_key_to_env, write_report
+from common import (
+    CACHE_DB,
+    ScannerService,
+    get_api_key,
+    get_requests_per_minute,
+    get_upload_timeout_minutes,
+    get_workers,
+    remove_api_key_from_env,
+    save_api_key_to_env,
+    write_report,
+)
 from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
 from .display import (
     SEPARATOR_WIDTH,
@@ -87,7 +97,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--requests-per-minute",
         dest="requests_per_minute",
         type=int,
-        default=DEFAULT_REQUESTS_PER_MINUTE,
+        default=None,
         metavar="N",
         help=f"Max VirusTotal API requests per minute (default: {DEFAULT_REQUESTS_PER_MINUTE}, 0 = unlimited)",
     )
@@ -181,14 +191,22 @@ def main() -> None:
     if args.output == _OUTPUT_AUTO:
         args.output = f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{report_format}"
 
+    if args.requests_per_minute is None:
+        saved_rpm = get_requests_per_minute()
+        args.requests_per_minute = saved_rpm if saved_rpm is not None else DEFAULT_REQUESTS_PER_MINUTE
     if args.requests_per_minute < 0:
         parser.error("--requests-per-minute must be >= 0")
     if args.upload_timeout is None:
-        args.upload_timeout = get_upload_timeout_minutes() or DEFAULT_UPLOAD_TIMEOUT_MINUTES
+        saved_upload_timeout = get_upload_timeout_minutes()
+        args.upload_timeout = saved_upload_timeout if saved_upload_timeout is not None else DEFAULT_UPLOAD_TIMEOUT_MINUTES
     if args.upload_timeout < 0:
         parser.error("--upload-timeout must be >= 0")
     if args.workers is None:
-        args.workers = args.requests_per_minute if args.requests_per_minute > 0 else DEFAULT_SCAN_WORKERS
+        saved_workers = get_workers()
+        if saved_workers is not None:
+            args.workers = saved_workers
+        else:
+            args.workers = args.requests_per_minute if args.requests_per_minute > 0 else DEFAULT_SCAN_WORKERS
     if args.workers < 1:
         parser.error("--workers must be >= 1")
 

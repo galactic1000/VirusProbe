@@ -185,6 +185,27 @@ def test_main_uses_env_upload_timeout_when_flag_missing(monkeypatch) -> None:
     assert captured["upload_timeout_minutes"] == 30
 
 
+def test_main_uses_zero_env_upload_timeout_when_flag_missing(monkeypatch) -> None:
+    captured: dict[str, int | None] = {"upload_timeout_minutes": None}
+
+    class CaptureService(FakeService):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            captured["upload_timeout_minutes"] = kwargs.get("upload_timeout_minutes")
+
+    monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_requests_per_minute", lambda: 4)
+    monkeypatch.setattr(cli_app, "get_workers", lambda: None)
+    monkeypatch.setattr(cli_app, "get_upload_timeout_minutes", lambda: 0)
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
+    assert captured["upload_timeout_minutes"] == 0
+
+
 def test_main_accepts_zero_upload_timeout(monkeypatch) -> None:
     captured: dict[str, int | None] = {"upload_timeout_minutes": None}
 
@@ -201,3 +222,26 @@ def test_main_accepts_zero_upload_timeout(monkeypatch) -> None:
 
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload-timeout", "0"])
     assert captured["upload_timeout_minutes"] == 0
+
+
+def test_main_uses_env_rpm_and_workers_when_flags_missing(monkeypatch) -> None:
+    captured: dict[str, int | None] = {"requests_per_minute": None, "max_workers": None}
+
+    class CaptureService(FakeService):
+        def __init__(self, *args, **kwargs) -> None:
+            super().__init__(*args, **kwargs)
+            captured["requests_per_minute"] = kwargs.get("requests_per_minute")
+            captured["max_workers"] = kwargs.get("max_workers")
+
+    monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_requests_per_minute", lambda: 0)
+    monkeypatch.setattr(cli_app, "get_workers", lambda: 7)
+    monkeypatch.setattr(cli_app, "get_upload_timeout_minutes", lambda: 20)
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
+    assert captured["requests_per_minute"] == 0
+    assert captured["max_workers"] == 7

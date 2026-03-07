@@ -30,7 +30,7 @@ from .dialogs import (
 from .model import AppModel
 from .presenter import AppPresenter, masked_api_key_text, upload_indicator_text
 from .view import MainWindow
-from .workflows import run_scan_workflow, run_upload_workflow
+from .workflows import run_scan_workflow, run_upload_workflow, upload_completion_feedback
 
 
 class VirusProbeGUI(ttk.Window):
@@ -325,10 +325,13 @@ class VirusProbeGUI(ttk.Window):
 
             total = len(entries)
             completed_ref = [0]
+            error_count_ref = [0]
 
             def on_result(result: dict[str, Any], iid: str | None) -> None:
                 completed_ref[0] += 1
                 c = completed_ref[0]
+                if result.get("status") == "error":
+                    error_count_ref[0] += 1
                 if iid is not None:
                     self._safe_after(self.view.set_row_status, iid, self.model.result_status(result))
                 self.model.upsert_result(result)
@@ -350,12 +353,13 @@ class VirusProbeGUI(ttk.Window):
                 )
                 self._safe_after(lambda: self.view.progress_var.set("Upload cancelled"))
             else:
-                self._safe_after(lambda: self.view.progress_var.set("Upload complete"))
+                progress_text, toast_title, toast_message, toast_style = upload_completion_feedback(total, error_count_ref[0])
+                self._safe_after(lambda text=progress_text: self.view.progress_var.set(text))
                 self._safe_after(
                     self._show_toast,
-                    "Upload Complete",
-                    f"Uploaded {total} file(s).",
-                    "success",
+                    toast_title,
+                    toast_message,
+                    toast_style,
                 )
         except Exception as exc:
             self._safe_after(lambda err=str(exc): self._show_error("Upload Error", err))

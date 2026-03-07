@@ -69,6 +69,23 @@ class UploadWorkflowResult:
     entry_iids: list[str]
 
 
+def upload_completion_feedback(total: int, error_count: int) -> tuple[str, str, str, str]:
+    if error_count > 0:
+        success_count = max(0, total - error_count)
+        return (
+            "Upload finished with errors",
+            "Upload Finished With Errors",
+            f"Uploaded {success_count}/{total} file(s); {error_count} failed.",
+            "warning",
+        )
+    return (
+        "Upload complete",
+        "Upload Complete",
+        f"Uploaded {total} file(s).",
+        "success",
+    )
+
+
 def run_upload_workflow(
     scanner: ScannerService,
     entries: list[tuple[str, str, str]],

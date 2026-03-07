@@ -19,7 +19,7 @@ def scan_many(
     if cancel_event is not None and cancel_event.is_set():
         return []
     item_iter = iter(items)
-    results: dict[int, dict[str, Any]] = {}
+    results: list[dict[str, Any] | None] = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_idx: dict[Any, int] = {}
         next_idx = 0
@@ -32,6 +32,7 @@ def scan_many(
                 return False
             future = executor.submit(scan_func, item)
             future_to_idx[future] = next_idx
+            results.append(None)
             next_idx += 1
             return True
 
@@ -54,7 +55,7 @@ def scan_many(
                 break
             while len(future_to_idx) < max_workers and _submit_next():
                 pass
-    return [results[idx] for idx in sorted(results)]
+    return [result for result in results if result is not None]
 
 
 def scan_files(

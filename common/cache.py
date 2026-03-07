@@ -34,6 +34,7 @@ class ScanCache:
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.Lock()
         self._writes_since_trim = 0
+        self._row_count = 0
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._conn is None:
@@ -58,6 +59,7 @@ class ScanCache:
             cursor = conn.cursor()
             self._ensure_schema(cursor)
             self._prune_locked(cursor)
+            self._row_count = self._count_rows_locked(cursor)
             conn.commit()
 
     def clear(self) -> int:
@@ -70,6 +72,7 @@ class ScanCache:
             deleted = int(cursor.fetchone()[0])
             cursor.execute("DELETE FROM scans")
             cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            self._row_count = 0
             conn.commit()
         return deleted
 
@@ -91,6 +94,8 @@ class ScanCache:
                     self._memory_set(file_hash, stats)
                     return stats
                 cursor.execute("DELETE FROM scans WHERE hash = ?", (hash_bytes,))
+                if cursor.rowcount > 0:
+                    self._row_count = max(0, self._row_count - cursor.rowcount)
                 conn.commit()
         return None
 
@@ -99,14 +104,26 @@ class ScanCache:
             self._memory_set(file_hash, stats)
             conn = self._get_conn()
             cursor = conn.cursor()
+            hash_bytes = bytes.fromhex(file_hash)
+            packed_stats = struct.pack(">4I", *stats)
+            timestamp = int(time.time())
             cursor.execute(
-                "INSERT OR REPLACE INTO scans (hash, stats, timestamp) VALUES (?, ?, ?)",
-                (bytes.fromhex(file_hash), struct.pack(">4I", *stats), int(time.time())),
+                "INSERT OR IGNORE INTO scans (hash, stats, timestamp) VALUES (?, ?, ?)",
+                (hash_bytes, packed_stats, timestamp),
             )
+            if cursor.rowcount > 0:
+                self._row_count += 1
+            else:
+                cursor.execute(
+                    "UPDATE scans SET stats = ?, timestamp = ? WHERE hash = ?",
+                    (packed_stats, timestamp, hash_bytes),
+                )
             self._enforce_row_cap_locked(cursor)
             self._writes_since_trim += 1
             if self._writes_since_trim >= self._TRIM_INTERVAL_WRITES:
                 cursor.execute("DELETE FROM scans WHERE timestamp < ?", (self._cutoff_ts(),))
+                if cursor.rowcount > 0:
+                    self._row_count = max(0, self._row_count - cursor.rowcount)
                 self._enforce_row_cap_locked(cursor)
                 self._writes_since_trim = 0
             conn.commit()
@@ -155,8 +172,7 @@ class ScanCache:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_scans_timestamp ON scans(timestamp)")
 
     def _enforce_row_cap_locked(self, cursor: sqlite3.Cursor) -> None:
-        cursor.execute("SELECT COUNT(*) FROM scans")
-        overflow = int(cursor.fetchone()[0]) - self._max_rows
+        overflow = self._row_count - self._max_rows
         if overflow > 0:
             cursor.execute(
                 """
@@ -169,10 +185,17 @@ class ScanCache:
                 """,
                 (overflow,),
             )
+            if cursor.rowcount > 0:
+                self._row_count = max(0, self._row_count - cursor.rowcount)
 
     def _prune_locked(self, cursor: sqlite3.Cursor) -> None:
         cursor.execute("DELETE FROM scans WHERE timestamp < ?", (self._cutoff_ts(),))
         self._enforce_row_cap_locked(cursor)
+
+    @staticmethod
+    def _count_rows_locked(cursor: sqlite3.Cursor) -> int:
+        cursor.execute("SELECT COUNT(*) FROM scans")
+        return int(cursor.fetchone()[0])
 
     def _cutoff_ts(self) -> int:
         return int(time.time()) - self._expiry_seconds

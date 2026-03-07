@@ -261,8 +261,11 @@ class MainWindow:
         selected_rows = self.table.get_rows(selected=True)
         if not selected_rows:
             return False
+        for row in selected_rows:
+            values = row.values
+            if len(values) >= 3:
+                self._item_keys.discard((str(values[1]), str(values[2])))
         self.table.delete_rows(iids=[row.iid for row in selected_rows])
-        self._item_keys = {(row[0], row[1]) for row in self._iter_values()}
         self._update_empty_state()
         return True
 
@@ -275,14 +278,14 @@ class MainWindow:
         return len(self.table.tablerows)
 
     def collect_pending_entries(self) -> list[tuple[str, str, str]]:
-        rows: list[tuple[str, str, str]] = []
-        for iid, (item_type, value, status) in self._iter_rows():
-            if status != "Queued":
+        files: list[tuple[str, str, str]] = []
+        hashes: list[tuple[str, str, str]] = []
+        for row in self.table.get_rows():
+            values = row.values
+            if len(values) < 4 or str(values[3]) != "Queued":
                 continue
-            rows.append((iid, item_type, value))
-        files, hashes = [], []
-        for e in rows:
-            (files if e[1] == "file" else hashes).append(e)
+            entry = (str(row.iid), str(values[1]), str(values[2]))
+            (files if entry[1] == "file" else hashes).append(entry)
         return files + hashes
 
     def set_row_status(self, iid: str, status: str) -> None:
@@ -308,8 +311,9 @@ class MainWindow:
                 row.values = values
 
     def has_uploadable_undetected(self) -> bool:
-        for _, (item_type, _, status) in self._iter_rows():
-            if item_type == "file" and status == "Undetected":
+        for row in self.table.get_rows():
+            values = row.values
+            if len(values) >= 4 and str(values[1]) == "file" and str(values[3]) == "Undetected":
                 return True
         return False
 
@@ -333,9 +337,6 @@ class MainWindow:
                 continue
             rows.append((str(row.iid), (str(values[1]), str(values[2]), str(values[3]))))
         return rows
-
-    def _iter_values(self) -> list[tuple[str, str, str]]:
-        return [row for _, row in self._iter_rows()]
 
     def _update_empty_state(self) -> None:
         if self.item_count() == 0:
