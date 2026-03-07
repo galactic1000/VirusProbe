@@ -161,6 +161,7 @@ def print_scan_summary(results: list[dict]) -> None:
         return
     summary = build_summary(results)
     error_items = [r for r in results if r.get("threat_level") == "Error"]
+    cancelled_items = [r for r in results if r.get("threat_level") == "Cancelled"]
     undetected_items = [r for r in results if r.get("threat_level") == "Undetected"]
     suspicious_items = [r for r in results if r.get("threat_level") == "Suspicious"]
     malicious_items = [r for r in results if r.get("threat_level") == "Malicious"]
@@ -176,10 +177,12 @@ def print_scan_summary(results: list[dict]) -> None:
         format_colored(f"Clean: {summary['clean']}", Fore.GREEN),
         format_colored(f"Undetected: {summary['undetected']}", Fore.CYAN),
     ]
+    if summary["cancelled"]:
+        parts.append(format_colored(f"Cancelled: {summary['cancelled']}", Fore.MAGENTA))
     if summary["errors"]:
         parts.append(format_colored(f"Errors: {summary['errors']}", Fore.RED))
     print(" | ".join(parts))
-    if malicious_items or suspicious_items or undetected_items or error_items:
+    if malicious_items or suspicious_items or undetected_items or cancelled_items or error_items:
         print()
 
     if malicious_items:
@@ -194,6 +197,10 @@ def print_scan_summary(results: list[dict]) -> None:
         print_subsection("UNDETECTED ITEMS", Fore.CYAN, leading_newline=False)
         for item in undetected_items:
             print(f"  - {_item_label(item)} (No VirusTotal record found)")
+    if cancelled_items:
+        print_subsection("CANCELLED ITEMS", Fore.MAGENTA, leading_newline=False)
+        for item in cancelled_items:
+            print(f"  - {_item_label(item)}")
     if error_items:
         print_subsection("ERRORS", Fore.RED, leading_newline=False)
         for item in error_items:

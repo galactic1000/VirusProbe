@@ -72,12 +72,15 @@ def scan_files(
 
 def scan_hashes(
     max_workers: int,
-    scan_hash: Callable[[str], dict[str, Any]],
+    scan_hash: Callable[[str, threading.Event | None], dict[str, Any]],
     hashes: Iterable[str],
     on_result: Callable[[dict[str, Any]], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> list[dict[str, Any]]:
-    return scan_many(max_workers, scan_hash, hashes, on_result=on_result, cancel_event=cancel_event)
+    def _scan_one(hash_value: str) -> dict[str, Any]:
+        return scan_hash(hash_value, cancel_event)
+
+    return scan_many(max_workers, _scan_one, hashes, on_result=on_result, cancel_event=cancel_event)
 
 
 def scan_directory(

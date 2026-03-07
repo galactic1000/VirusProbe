@@ -18,7 +18,7 @@ from . import service_upload
 
 DEFAULT_SCAN_WORKERS = 4
 DEFAULT_REQUESTS_PER_MINUTE = 4
-_HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
+
 
 class _HashCancelled(Exception):
     """Raised internally when file hashing is interrupted by cancel_event."""
@@ -26,6 +26,8 @@ class _HashCancelled(Exception):
 
 class ScannerService:
     """VirusTotal scanner backed by ScanCache."""
+
+    _HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
 
     def __init__(
         self,
@@ -59,6 +61,7 @@ class ScannerService:
         self._clients: list[vt.Client] = []
         self._clients_lock = threading.Lock()
         self._requests_per_minute = max(0, int(requests_per_minute))
+        self._closed = False
 
     def init_cache(self) -> None:
         self._cache.init()
@@ -69,6 +72,7 @@ class ScannerService:
     def close(self) -> None:
         self._cache.close()
         with self._clients_lock:
+            self._closed = True
             clients = self._clients
             self._clients = []
         for client in clients:
@@ -76,6 +80,8 @@ class ScannerService:
                 client.close()
 
     def _get_client(self) -> vt.Client:
+        if self._closed:
+            raise RuntimeError("ScannerService has been closed")
         client = getattr(self._client_local, "client", None)
         if client is None:
             client = vt.Client(self.api_key)
@@ -125,7 +131,7 @@ class ScannerService:
             "suspicious": 0,
             "harmless": 0,
             "undetected": 0,
-            "threat_level": "Error",
+            "threat_level": "Cancelled",
             "status": "cancelled",
             "message": "Cancelled by user",
             "was_cached": False,
@@ -172,8 +178,7 @@ class ScannerService:
             return self._error_result(file_path, "file", str(exc))
 
         try:
-            vt_response, was_cached = self._query_virustotal(file_hash)
-            malicious, suspicious, harmless, undetected = self._extract_stats(vt_response)
+            (malicious, suspicious, harmless, undetected), was_cached = self._query_virustotal(file_hash)
         except vt.APIError as exc:
             if exc.code == "NotFoundError" and self.upload_undetected and (self.upload_filter is None or self.upload_filter(file_path)):
                 if cancel_event is None:
@@ -209,7 +214,9 @@ class ScannerService:
             "was_uploaded": False,
         }
 
-    def scan_hash(self, file_hash: str) -> dict[str, Any]:
+    def scan_hash(self, file_hash: str, cancel_event: threading.Event | None = None) -> dict[str, Any]:
+        if cancel_event is not None and cancel_event.is_set():
+            return self._cancelled_result(str(file_hash), "hash")
         if not isinstance(file_hash, str):
             return self._hash_error(file_hash, "Invalid SHA-256 hash format")
         normalized_input = file_hash.strip()
@@ -218,8 +225,7 @@ class ScannerService:
 
         normalized_hash = normalized_input.lower()
         try:
-            vt_response, was_cached = self._query_virustotal(normalized_hash)
-            malicious, suspicious, harmless, undetected = self._extract_stats(vt_response)
+            (malicious, suspicious, harmless, undetected), was_cached = self._query_virustotal(normalized_hash)
         except vt.APIError as exc:
             if exc.code == "NotFoundError":
                 return self._not_found_result(normalized_hash)
@@ -246,7 +252,7 @@ class ScannerService:
 
     @staticmethod
     def is_sha256(value: str) -> bool:
-        return len(value) == 64 and all(c in _HEX_CHARS for c in value)
+        return len(value) == 64 and all(c in ScannerService._HEX_CHARS for c in value)
 
     @staticmethod
     def classify_threat(malicious: int, suspicious: int = 0) -> str:
@@ -270,15 +276,16 @@ class ScannerService:
             int(stats["undetected"]),
         )
 
-    def _query_virustotal(self, file_hash: str) -> tuple[dict[str, Any], bool]:
+    def _query_virustotal(self, file_hash: str) -> tuple[tuple[int, int, int, int], bool]:
         cached = self._cache.get(file_hash)
         if cached is not None:
             return cached, True
         self._rate_limiter.acquire()
         client = self._get_client()
         response_json = client.get(f"/files/{file_hash}").json()
-        self._cache.save(file_hash, self._extract_stats(response_json))
-        return response_json, False
+        stats = self._extract_stats(response_json)
+        self._cache.save(file_hash, stats)
+        return stats, False
 
     def _upload_file(self, file_path: str) -> str:
         return service_upload.upload_file(
@@ -308,7 +315,6 @@ class ScannerService:
             file_hash=file_hash,
             cancel_event=cancel_event,
         )
-
 
     def upload_file_direct(
         self,
@@ -352,15 +358,6 @@ class ScannerService:
             on_result=on_result,
             cancel_event=cancel_event,
         )
-
-    def _scan_many(
-        self,
-        scan_func: Callable[[str], dict[str, Any]],
-        items: Iterable[str],
-        on_result: Callable[[dict[str, Any]], None] | None = None,
-        cancel_event: threading.Event | None = None,
-    ) -> list[dict[str, Any]]:
-        return service_scan.scan_many(self.max_workers, scan_func, items, on_result=on_result, cancel_event=cancel_event)
 
     def scan_files(
         self,

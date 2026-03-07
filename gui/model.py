@@ -9,13 +9,18 @@ from typing import Any
 
 from common import (
     ScannerService,
+    THEME_AUTO,
+    THEME_DARK,
+    THEME_LIGHT,
     get_api_key,
     get_requests_per_minute,
+    get_theme_mode,
     get_upload_mode,
     get_workers,
     remove_api_key_from_env,
     save_api_key_to_env,
     save_requests_per_minute_to_env,
+    save_theme_mode_to_env,
     save_upload_mode_to_env,
     save_workers_to_env,
 )
@@ -27,6 +32,7 @@ class AppModel:
         self.cache_db = cache_db
         self.api_key: str | None = get_api_key()
         self.upload_mode: str = get_upload_mode()
+        self.theme_mode: str = get_theme_mode() or THEME_AUTO
         self.saved_rpm = get_requests_per_minute() or DEFAULT_REQUESTS_PER_MINUTE
         self.saved_workers = get_workers() or DEFAULT_SCAN_WORKERS
         self.default_report_dir = str(Path.home())
@@ -48,13 +54,15 @@ class AppModel:
             remove_api_key_from_env()
         self.reset_scanner()
 
-    def set_advanced(self, rpm: int, workers: int, upload_mode: str) -> None:
+    def set_advanced(self, rpm: int, workers: int, upload_mode: str, theme_mode: str) -> None:
         self.saved_rpm = max(0, int(rpm))
         self.saved_workers = max(1, int(workers))
         self.upload_mode = upload_mode
+        self.theme_mode = theme_mode if theme_mode in (THEME_AUTO, THEME_DARK, THEME_LIGHT) else THEME_AUTO
         save_requests_per_minute_to_env(self.saved_rpm)
         save_workers_to_env(self.saved_workers)
         save_upload_mode_to_env(upload_mode)
+        save_theme_mode_to_env(self.theme_mode)
         self.reset_scanner()
 
     def reset_scanner(self) -> None:

@@ -23,9 +23,7 @@ def test_cache_roundtrip(tmp_path) -> None:
     finally:
         cache.close()
 
-    assert result is not None
-    stats = result["data"]["attributes"]["last_analysis_stats"]
-    assert stats == {"malicious": 1, "suspicious": 2, "harmless": 3, "undetected": 4}
+    assert result == (1, 2, 3, 4)
 
 
 def test_cache_stale_row_deleted_on_read(tmp_path) -> None:

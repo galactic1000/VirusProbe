@@ -14,6 +14,7 @@ import aiohttp
 _UPLOAD_SIZE_THRESHOLD = 32 * 1024 * 1024  # 32 MB
 _UPLOAD_MAX_SIZE = 650 * 1024 * 1024  # 650 MB hard cap
 _MIN_POLL_INTERVAL = 15  # seconds between analysis status polls
+_MAX_POLL_SECONDS = 1200  # 20-minute hard timeout for analysis completion
 
 
 class ScanCancelledError(Exception):
@@ -76,9 +77,12 @@ def poll_analysis(
 ) -> tuple[int, int, int, int]:
     client = get_client()
     poll_interval = poll_interval_seconds(requests_per_minute)
+    deadline = time.monotonic() + _MAX_POLL_SECONDS
     while True:
         if cancel_event is not None and cancel_event.is_set():
             raise ScanCancelledError()
+        if time.monotonic() > deadline:
+            raise TimeoutError(f"VirusTotal analysis timed out after {_MAX_POLL_SECONDS // 60} minutes")
         rate_limit_acquire()
         raw = client.get_json(f"/analyses/{analysis_id}")
         status = raw.get("data", {}).get("attributes", {}).get("status", "")

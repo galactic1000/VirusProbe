@@ -3,40 +3,46 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import dotenv
 
-DOTENV_PATH: Path = Path(__file__).resolve().parents[1] / ".env"
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parents[1]
 
-API_KEY_ENV_VARS: tuple[str, ...] = ("VT_API_KEY", "VIRUSTOTAL_API_KEY")
+DOTENV_PATH: Path = BASE_DIR / ".env"
+
+API_KEY_ENV_VAR = "VT_API_KEY"
 
 RPM_ENV_VAR = "VT_REQUESTS_PER_MINUTE"
 
 WORKERS_ENV_VAR = "VT_WORKERS"
 
-UPLOAD_MODE_ENV_VAR = "VT_UPLOAD_UNDETECTED"
+UPLOAD_MODE_ENV_VAR = "VT_GUI_UPLOAD_MODE"
 # Valid values for UPLOAD_MODE_ENV_VAR:
 UPLOAD_NEVER = "never"
 UPLOAD_MANUAL = "manual"
 UPLOAD_AUTO = "auto"
 
+THEME_MODE_ENV_VAR = "VT_GUI_THEME_MODE"
+THEME_AUTO = "auto"
+THEME_DARK = "dark"
+THEME_LIGHT = "light"
+
 dotenv.load_dotenv(DOTENV_PATH, override=False)
 
 
 def get_api_key() -> str | None:
-    for var_name in API_KEY_ENV_VARS:
-        value = os.environ.get(var_name, "").strip()
-        if value:
-            return value
-    return None
+    value = os.environ.get(API_KEY_ENV_VAR, "").strip()
+    return value or None
 
 
 def save_api_key_to_env(api_key: str) -> None:
-    for name in API_KEY_ENV_VARS:
-        dotenv.unset_key(DOTENV_PATH, name)
-    dotenv.set_key(DOTENV_PATH, "VT_API_KEY", api_key, quote_mode="auto")
-    os.environ["VT_API_KEY"] = api_key
+    dotenv.set_key(DOTENV_PATH, API_KEY_ENV_VAR, api_key, quote_mode="auto")
+    os.environ[API_KEY_ENV_VAR] = api_key
 
 
 def get_requests_per_minute() -> int | None:
@@ -77,14 +83,29 @@ def save_upload_mode_to_env(mode: str) -> None:
     os.environ[UPLOAD_MODE_ENV_VAR] = mode
 
 
+def get_theme_mode() -> str:
+    raw = os.environ.get(THEME_MODE_ENV_VAR, "").strip().lower()
+    if raw in (THEME_DARK, THEME_LIGHT):
+        return raw
+    return THEME_AUTO
+
+
+def save_theme_mode_to_env(mode: str) -> None:
+    if mode not in (THEME_AUTO, THEME_DARK, THEME_LIGHT):
+        mode = THEME_AUTO
+    dotenv.set_key(DOTENV_PATH, THEME_MODE_ENV_VAR, mode, quote_mode="never")
+    os.environ[THEME_MODE_ENV_VAR] = mode
+
+
 def remove_api_key_from_env() -> bool:
     removed = False
-    for name in API_KEY_ENV_VARS:
-        success, _ = dotenv.unset_key(DOTENV_PATH, name)
-        if success:
-            removed = True
-    for name in API_KEY_ENV_VARS:
-        os.environ.pop(name, None)
+    if DOTENV_PATH.exists():
+        existing = dotenv.dotenv_values(DOTENV_PATH)
+        if API_KEY_ENV_VAR in existing:
+            success, _ = dotenv.unset_key(DOTENV_PATH, API_KEY_ENV_VAR)
+            if success:
+                removed = True
+    os.environ.pop(API_KEY_ENV_VAR, None)
     if DOTENV_PATH.exists() and not DOTENV_PATH.read_text(encoding="utf-8").strip():
         DOTENV_PATH.unlink()
     return removed

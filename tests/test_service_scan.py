@@ -26,11 +26,8 @@ def test_scan_hash_invalid_format_returns_error(tmp_path) -> None:
 
 def test_scan_hash_uses_mocked_vt_response(tmp_path) -> None:
     service = _service(tmp_path)
-    fake_response = {
-        "data": {"attributes": {"last_analysis_stats": {"malicious": 12, "suspicious": 1, "harmless": 5, "undetected": 7}}}
-    }
     try:
-        with patch.object(service, "_query_virustotal", return_value=(fake_response, False)):
+        with patch.object(service, "_query_virustotal", return_value=((12, 1, 5, 7), False)):
             result = service.scan_hash("a" * 64)
     finally:
         service.close()
@@ -116,9 +113,8 @@ def test_scan_directory_not_a_directory_returns_error_dict(tmp_path) -> None:
 def test_scan_hashes_on_result_callback_fires_for_each_item(tmp_path) -> None:
     service = _service(tmp_path)
     fired: list[dict] = []
-    fake_response = {"data": {"attributes": {"last_analysis_stats": {"malicious": 0, "suspicious": 0, "harmless": 5, "undetected": 0}}}}
     try:
-        with patch.object(service, "_query_virustotal", return_value=(fake_response, False)):
+        with patch.object(service, "_query_virustotal", return_value=((0, 0, 5, 0), False)):
             service.scan_hashes(["a" * 64, "b" * 64], on_result=fired.append)
     finally:
         service.close()

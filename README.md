@@ -90,7 +90,7 @@ python gui.py
 **GUI**
 - Drag-and-drop file support
 - Live scan progress bar and per-row status updates
-- Advanced settings dialog (workers, rate limit, upload mode) persisted to `.env`
+- Advanced settings dialog (theme mode, workers, rate limit, upload mode) persisted to `.env`
 
 ## CLI Usage
 
@@ -118,8 +118,8 @@ python cli.py [options]
 | `--upload-filter GLOB [GLOB ...]` | Only upload files matching these globs (requires `--upload`): filename `*.exe`; path `*/src/*.dll` (matched against resolved absolute paths). |
 | `-o, --output [OUTPUT]` | Write report to file; when used without value, auto-generates `scan_report_YYYYMMDD_HHMMSS.<format>` |
 | `--format {json,csv,txt,md}` | Report format for `--output` (default: `json`) |
-| `--requests-per-minute N` | Max VirusTotal API requests per minute (default: `4`, `0` = unlimited) |
-| `--workers WORKERS` | Concurrent scan workers (default: matches `--requests-per-minute`, minimum: `1`) |
+| `--rpm, --requests-per-minute N` | Max VirusTotal API requests per minute (default: `4`, `0` = unlimited) |
+| `-w, --workers WORKERS` | Concurrent scan workers (default: matches `--requests-per-minute`, minimum: `1`) |
 | `--api-key API_KEY` | VirusTotal API key for this run |
 | `--save-api-key` | Save `--api-key` into `.env` |
 | `--clear-api-key` | Remove saved API key from `.env` |
@@ -172,7 +172,7 @@ VirusProbe-CLI -d /path/to/folder --upload --upload-filter "*.exe" "*.dll"
 - **Set API Key**: Store/remove key in `.env`
 - **Add Item**: Add files, single SHA-256 hash, or multiple hashes (one per line)
 - **Drag-and-drop**: Accepts files directly
-- **Advanced Settings**: Configure workers (1-50), rate limit, and upload mode (never/manual/auto)
+- **Advanced Settings**: Configure theme (auto/light/dark), workers (1-50), rate limit, and upload mode (never/manual/auto)
   - Manual mode: `Upload` button appears in toolbar - select `Undetected` rows and click to upload
   - Auto mode: Undetected files upload automatically during scan
   - Settings persist to `.env`
@@ -182,9 +182,9 @@ VirusProbe-CLI -d /path/to/folder --upload --upload-filter "*.exe" "*.dll"
 
 ## Cache & Configuration
 
-VirusProbe uses local SQLite caching (`cache/vt_cache.db`) and stores settings in `.env`. Both CLI and GUI can clear the cache.
+VirusProbe uses local SQLite caching (`.cache/vt_cache.db`) and stores settings in `.env`. Both CLI and GUI can clear the cache.
 
-Supported environment variables: `VT_API_KEY`, `VIRUSTOTAL_API_KEY`, `VT_REQUESTS_PER_MINUTE`, `VT_WORKERS`.
+Supported environment variables: `VT_API_KEY`, `VT_REQUESTS_PER_MINUTE`, `VT_WORKERS`.
 
 ## Verdict Criteria
 
@@ -211,4 +211,3 @@ pytest -q
 ```
 
 Tests cover CLI, caching, scanning, uploading, rate limiting, and reporting.
-

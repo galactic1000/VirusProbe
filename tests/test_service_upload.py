@@ -64,9 +64,7 @@ def test_upload_and_scan_success_sets_uploaded_and_caches(tmp_path) -> None:
     assert result["status"] == "ok"
     assert result["was_uploaded"] is True
     assert result["malicious"] == 2
-    assert cached is not None
-    assert cached["data"]["attributes"]["last_analysis_stats"]["malicious"] == 2
-    assert cached["data"]["attributes"]["last_analysis_stats"]["suspicious"] == 1
+    assert cached == (2, 1, 30, 4)
 
 
 def test_upload_and_scan_failure_returns_error(tmp_path) -> None:

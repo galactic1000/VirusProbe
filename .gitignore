@@ -5,7 +5,7 @@
 .venv/
 
 # Cache
-cache/
+.cache/
 .pytest*
 
 # Python bytecode

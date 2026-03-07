@@ -12,7 +12,7 @@ from typing import Callable
 
 from colorama import Fore, init
 
-from common import ScannerService, get_api_key, remove_api_key_from_env, save_api_key_to_env, write_report
+from common import CACHE_DB, ScannerService, get_api_key, remove_api_key_from_env, save_api_key_to_env, write_report
 from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS
 from .display import (
     SEPARATOR_WIDTH,
@@ -25,9 +25,9 @@ from .display import (
 )
 
 init(autoreset=True)
-
-CACHE_DB = Path(__file__).resolve().parents[1] / "cache" / "vt_cache.db"
 _OUTPUT_AUTO = "__AUTO_OUTPUT__"
+_EXIT_ERROR = 1
+_EXIT_CANCELLED = 130
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -194,7 +194,7 @@ def main() -> None:
 
     api_key = explicit_api_key or get_api_key()
     if not api_key:
-        parser.error("VirusTotal API key is required. Set VT_API_KEY or VIRUSTOTAL_API_KEY (env or .env file).")
+        parser.error("VirusTotal API key is required. Set VT_API_KEY in environment or .env file.")
 
     print_banner()
     if args.requests_per_minute > 0 and args.workers > args.requests_per_minute:
@@ -276,7 +276,7 @@ def main() -> None:
             print(format_colored("Cancellation requested. Finishing in-flight work...", Fore.YELLOW))
         if not results:
             if cancelled:
-                sys.exit(130)
+                sys.exit(_EXIT_CANCELLED)
             return
 
         print_scan_summary(results)
@@ -287,6 +287,6 @@ def main() -> None:
         service.close()
 
     if cancelled:
-        sys.exit(130)
+        sys.exit(_EXIT_CANCELLED)
     if any(r.get("status") == "error" for r in results):
-        sys.exit(1)
+        sys.exit(_EXIT_ERROR)

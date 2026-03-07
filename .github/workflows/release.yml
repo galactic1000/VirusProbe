@@ -40,13 +40,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-cli.txt
           pip install -r requirements-gui.txt
-          pip install pyinstaller
+          pip install pyinstaller pillow
 
       - name: Build CLI executable
         run: pyinstaller --onefile --name ${{ matrix.cli_name }} cli.py
 
       - name: Build GUI executable
-        run: pyinstaller --onefile --name ${{ matrix.gui_name }} --windowed gui.py
+        run: >-
+          pyinstaller --onefile --name ${{ matrix.gui_name }} --windowed
+          --additional-hooks-dir=.github/pyinstaller_hooks
+          --add-data "gui/assets/icon.png:gui/assets"
+          --icon gui/assets/icon.png gui.py
 
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4

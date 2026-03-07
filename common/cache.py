@@ -8,7 +8,10 @@ import threading
 import time
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+
+from .env import BASE_DIR
+
+CACHE_DB: Path = BASE_DIR / ".cache" / "vt_cache.db"
 
 
 class ScanCache:
@@ -70,11 +73,11 @@ class ScanCache:
             conn.commit()
         return deleted
 
-    def get(self, file_hash: str) -> dict[str, Any] | None:
+    def get(self, file_hash: str) -> tuple[int, int, int, int] | None:
         with self._lock:
             stats = self._memory_get(file_hash)
             if stats is not None:
-                return self._build_response(stats)
+                return stats
 
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -86,7 +89,7 @@ class ScanCache:
                 if int(timestamp) >= self._cutoff_ts():
                     stats = struct.unpack(">4I", stats_blob)
                     self._memory_set(file_hash, stats)
-                    return self._build_response(stats)
+                    return stats
                 cursor.execute("DELETE FROM scans WHERE hash = ?", (hash_bytes,))
                 conn.commit()
         return None
@@ -186,18 +189,3 @@ class ScanCache:
         if len(self._memory) > self._memory_max:
             self._memory.popitem(last=False)
 
-    @staticmethod
-    def _build_response(stats: tuple[int, int, int, int]) -> dict[str, Any]:
-        malicious, suspicious, harmless, undetected = stats
-        return {
-            "data": {
-                "attributes": {
-                    "last_analysis_stats": {
-                        "malicious": malicious,
-                        "suspicious": suspicious,
-                        "harmless": harmless,
-                        "undetected": undetected,
-                    }
-                }
-            }
-        }

@@ -9,11 +9,13 @@ from pathlib import Path
 
 
 def build_summary(results: list[dict]) -> dict[str, int]:
-    clean = suspicious = malicious = undetected = errors = 0
+    clean = suspicious = malicious = undetected = errors = cancelled = 0
     for r in results:
         tl = r.get("threat_level")
         if tl == "Error":
             errors += 1
+        elif tl == "Cancelled":
+            cancelled += 1
         elif tl == "Undetected":
             undetected += 1
         elif tl == "Malicious":
@@ -29,6 +31,7 @@ def build_summary(results: list[dict]) -> dict[str, int]:
         "malicious": malicious,
         "undetected": undetected,
         "errors": errors,
+        "cancelled": cancelled,
     }
 
 
@@ -68,6 +71,7 @@ def write_report(results: list[dict], output_path: str, report_format: str, sepa
             f"- Suspicious: {summary['suspicious']}",
             f"- Malicious: {summary['malicious']}",
             f"- Undetected: {summary['undetected']}",
+            f"- Cancelled: {summary['cancelled']}",
             f"- Errors: {summary['errors']}",
             "",
             "## Results",
@@ -93,6 +97,7 @@ def write_report(results: list[dict], output_path: str, report_format: str, sepa
         f"Suspicious: {summary['suspicious']}",
         f"Malicious: {summary['malicious']}",
         f"Undetected: {summary['undetected']}",
+        f"Cancelled: {summary['cancelled']}",
         f"Errors: {summary['errors']}",
         "",
         "Results:",
