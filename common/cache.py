@@ -29,7 +29,7 @@ class ScanCache:
         self.cache_db = cache_db
         self._expiry_seconds: int = cache_expiry_days * 24 * 60 * 60
         self._max_rows = cache_max_rows
-        self._memory: OrderedDict[str, tuple[int, int, int, int]] = OrderedDict()
+        self._memory: OrderedDict[str, tuple[tuple[int, int, int, int], int]] = OrderedDict()
         self._memory_max = memory_cache_max_entries
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.Lock()
@@ -58,8 +58,8 @@ class ScanCache:
             conn = self._get_conn()
             cursor = conn.cursor()
             self._ensure_schema(cursor)
-            self._prune_locked(cursor)
             self._row_count = self._count_rows_locked(cursor)
+            self._prune_locked(cursor)
             conn.commit()
 
     def clear(self) -> int:
@@ -91,7 +91,7 @@ class ScanCache:
                 stats_blob, timestamp = row
                 if int(timestamp) >= self._cutoff_ts():
                     stats = struct.unpack(">4I", stats_blob)
-                    self._memory_set(file_hash, stats)
+                    self._memory_set(file_hash, stats, int(timestamp))
                     return stats
                 cursor.execute("DELETE FROM scans WHERE hash = ?", (hash_bytes,))
                 if cursor.rowcount > 0:
@@ -101,7 +101,6 @@ class ScanCache:
 
     def save(self, file_hash: str, stats: tuple[int, int, int, int]) -> None:
         with self._lock:
-            self._memory_set(file_hash, stats)
             conn = self._get_conn()
             cursor = conn.cursor()
             hash_bytes = bytes.fromhex(file_hash)
@@ -127,6 +126,7 @@ class ScanCache:
                 self._enforce_row_cap_locked(cursor)
                 self._writes_since_trim = 0
             conn.commit()
+            self._memory_set(file_hash, stats, timestamp)
 
     _CREATE_SQL = (
         "CREATE TABLE IF NOT EXISTS scans ("
@@ -203,11 +203,16 @@ class ScanCache:
     def _memory_get(self, file_hash: str) -> tuple[int, int, int, int] | None:
         result = self._memory.get(file_hash)
         if result is not None:
+            stats, timestamp = result
+            if timestamp < self._cutoff_ts():
+                self._memory.pop(file_hash, None)
+                return None
             self._memory.move_to_end(file_hash)
-        return result
+            return stats
+        return None
 
-    def _memory_set(self, file_hash: str, stats: tuple[int, int, int, int]) -> None:
-        self._memory[file_hash] = stats
+    def _memory_set(self, file_hash: str, stats: tuple[int, int, int, int], timestamp: int) -> None:
+        self._memory[file_hash] = (stats, timestamp)
         self._memory.move_to_end(file_hash)
         if len(self._memory) > self._memory_max:
             self._memory.popitem(last=False)

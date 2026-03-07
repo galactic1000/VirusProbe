@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
+
+import pytest
 
 from common.cache import ScanCache
 
@@ -84,6 +87,31 @@ def test_cache_init_prunes_expired_rows(tmp_path) -> None:
         cache2.close()
 
 
+def test_cache_init_enforces_row_cap_on_existing_db(tmp_path) -> None:
+    db = tmp_path / "vt_cache.db"
+    cache = ScanCache(cache_db=db, cache_max_rows=5)
+    cache.init()
+    try:
+        for index in range(5):
+            cache.save(f"{index:064x}", (index, 0, 0, 0))
+    finally:
+        cache.close()
+
+    with sqlite3.connect(str(db)) as conn:
+        conn.execute(
+            "INSERT INTO scans (hash, stats, timestamp) VALUES (?, ?, ?)",
+            (bytes.fromhex("f" * 64), sqlite3.Binary(b"\x00" * 16), int(time.time())),
+        )
+        conn.commit()
+
+    cache2 = ScanCache(cache_db=db, cache_max_rows=5)
+    cache2.init()
+    try:
+        assert _row_count(db) == 5
+    finally:
+        cache2.close()
+
+
 def test_memory_cache_lru_eviction(tmp_path) -> None:
     db = tmp_path / "vt_cache.db"
     cache = ScanCache(cache_db=db, memory_cache_max_entries=2)
@@ -98,3 +126,49 @@ def test_memory_cache_lru_eviction(tmp_path) -> None:
 
     assert len(memory_keys) == 2
     assert "1" * 64 not in memory_keys
+
+
+def test_memory_cache_entry_expires_without_restart(tmp_path) -> None:
+    db = tmp_path / "vt_cache.db"
+    cache = ScanCache(cache_db=db, cache_expiry_days=1)
+    cache.init()
+    try:
+        file_hash = "d" * 64
+        cache.save(file_hash, (4, 3, 2, 1))
+        conn = cache._get_conn()  # noqa: SLF001
+        conn.execute("UPDATE scans SET timestamp = 0 WHERE hash = ?", (bytes.fromhex(file_hash),))
+        conn.commit()
+        cache._memory[file_hash] = ((4, 3, 2, 1), 0)  # noqa: SLF001
+
+        assert cache.get(file_hash) is None
+        assert file_hash not in cache._memory  # noqa: SLF001
+    finally:
+        cache.close()
+
+
+def test_cache_save_does_not_populate_memory_when_commit_fails(monkeypatch, tmp_path) -> None:
+    class _FakeCursor:
+        rowcount = 1
+
+        def execute(self, _sql, _params=None) -> None:
+            return None
+
+    class _FakeConnection:
+        def __init__(self) -> None:
+            self._cursor = _FakeCursor()
+
+        def cursor(self) -> _FakeCursor:
+            return self._cursor
+
+        def commit(self) -> None:
+            raise sqlite3.OperationalError("commit failed")
+
+    db = tmp_path / "vt_cache.db"
+    cache = ScanCache(cache_db=db)
+    fake_conn = _FakeConnection()
+    monkeypatch.setattr(cache, "_get_conn", lambda: fake_conn)
+
+    with pytest.raises(sqlite3.OperationalError, match="commit failed"):
+        cache.save("e" * 64, (1, 2, 3, 4))
+
+    assert "e" * 64 not in cache._memory  # noqa: SLF001

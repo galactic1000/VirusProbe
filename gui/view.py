@@ -329,15 +329,6 @@ class MainWindow:
     def _iid(item_type: str, value: str) -> str:
         return f"{item_type}|{value}"
 
-    def _iter_rows(self) -> list[tuple[str, tuple[str, str, str]]]:
-        rows: list[tuple[str, tuple[str, str, str]]] = []
-        for row in self.table.get_rows():
-            values = row.values
-            if len(values) < 4:
-                continue
-            rows.append((str(row.iid), (str(values[1]), str(values[2]), str(values[3]))))
-        return rows
-
     def _update_empty_state(self) -> None:
         if self.item_count() == 0:
             self.empty_state_overlay.place(relx=0.5, rely=0.47, anchor=tk.CENTER)
