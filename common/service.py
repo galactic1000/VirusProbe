@@ -287,7 +287,10 @@ class ScannerService:
         client = self._get_client()
         response_json = client.get(f"/files/{file_hash}").json()
         stats = self._extract_stats(response_json)
-        self._cache.save(file_hash, stats)
+        try:
+            self._cache.save(file_hash, stats)
+        except Exception:
+            pass
         return stats, False
 
     def _upload_file(self, file_path: str) -> str:

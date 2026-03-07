@@ -119,7 +119,11 @@ def upload_and_scan(
     except Exception as exc:
         return error_result(file_path, "file", f"Upload failed: {exc}", file_hash)
 
-    cache_save(file_hash, (malicious, suspicious, harmless, undetected))
+    try:
+        cache_save(file_hash, (malicious, suspicious, harmless, undetected))
+    except Exception:
+        pass
+
     return {
         "item": file_path,
         "type": "file",

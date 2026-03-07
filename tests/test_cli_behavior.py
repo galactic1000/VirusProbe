@@ -80,6 +80,29 @@ def test_clear_cache_action_only(monkeypatch) -> None:
     assert FakeService.clear_cache_called == 1
 
 
+def test_invalid_recursive_input_does_not_run_admin_actions(monkeypatch) -> None:
+    calls: dict[str, str | None] = {"saved": None}
+
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "save_api_key_to_env", lambda value: calls.__setitem__("saved", value))
+
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["cli.py", "--api-key", "abc", "--save-api-key", "-r", "-s", "a" * 64])
+
+    assert calls["saved"] is None
+
+
+def test_invalid_upload_filter_input_does_not_clear_cache(monkeypatch) -> None:
+    FakeService.clear_cache_called = 0
+    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["cli.py", "--clear-cache", "--upload-filter", "*.exe", "-s", "a" * 64])
+
+    assert FakeService.clear_cache_called == 0
+
+
 def test_filter_existing_files_returns_only_real_files(tmp_path) -> None:
     good = tmp_path / "good.bin"
     good.write_bytes(b"x")

@@ -153,9 +153,13 @@ def test_cache_save_does_not_populate_memory_when_commit_fails(monkeypatch, tmp_
         def execute(self, _sql, _params=None) -> None:
             return None
 
+        def fetchone(self):
+            return None
+
     class _FakeConnection:
         def __init__(self) -> None:
             self._cursor = _FakeCursor()
+            self.rollback_called = False
 
         def cursor(self) -> _FakeCursor:
             return self._cursor
@@ -163,12 +167,62 @@ def test_cache_save_does_not_populate_memory_when_commit_fails(monkeypatch, tmp_
         def commit(self) -> None:
             raise sqlite3.OperationalError("commit failed")
 
+        def rollback(self) -> None:
+            self.rollback_called = True
+
     db = tmp_path / "vt_cache.db"
     cache = ScanCache(cache_db=db)
     fake_conn = _FakeConnection()
+    cache._row_count = 4  # noqa: SLF001
+    cache._writes_since_trim = 7  # noqa: SLF001
     monkeypatch.setattr(cache, "_get_conn", lambda: fake_conn)
 
     with pytest.raises(sqlite3.OperationalError, match="commit failed"):
         cache.save("e" * 64, (1, 2, 3, 4))
 
+    assert fake_conn.rollback_called is True
+    assert cache._row_count == 4  # noqa: SLF001
+    assert cache._writes_since_trim == 7  # noqa: SLF001
     assert "e" * 64 not in cache._memory  # noqa: SLF001
+
+
+def test_cache_get_restores_row_count_when_stale_delete_commit_fails(monkeypatch, tmp_path) -> None:
+    class _FakeCursor:
+        def __init__(self) -> None:
+            self.rowcount = 0
+
+        def execute(self, sql, _params=None):
+            if sql.startswith("SELECT stats, timestamp"):
+                self.rowcount = 0
+            elif sql.startswith("DELETE FROM scans WHERE hash"):
+                self.rowcount = 1
+            return None
+
+        def fetchone(self):
+            return (sqlite3.Binary(b"\x00" * 16), 0)
+
+    class _FakeConnection:
+        def __init__(self) -> None:
+            self._cursor = _FakeCursor()
+            self.rollback_called = False
+
+        def cursor(self) -> _FakeCursor:
+            return self._cursor
+
+        def commit(self) -> None:
+            raise sqlite3.OperationalError("commit failed")
+
+        def rollback(self) -> None:
+            self.rollback_called = True
+
+    db = tmp_path / "vt_cache.db"
+    cache = ScanCache(cache_db=db)
+    fake_conn = _FakeConnection()
+    cache._row_count = 9  # noqa: SLF001
+    monkeypatch.setattr(cache, "_get_conn", lambda: fake_conn)
+
+    with pytest.raises(sqlite3.OperationalError, match="commit failed"):
+        cache.get("f" * 64)
+
+    assert fake_conn.rollback_called is True
+    assert cache._row_count == 9  # noqa: SLF001

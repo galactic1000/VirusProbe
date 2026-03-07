@@ -79,6 +79,25 @@ def test_upload_and_scan_failure_returns_error(tmp_path) -> None:
     assert "Upload failed: boom" in result["message"]
 
 
+def test_upload_and_scan_cache_save_failure_still_returns_success(tmp_path) -> None:
+    service = _service(tmp_path)
+    sample = tmp_path / "cache_fail.bin"
+    sample.write_bytes(b"x")
+    file_hash = service.hash_file(str(sample))
+    try:
+        with (
+            patch.object(service, "_upload_file", return_value="analysis-id"),
+            patch.object(service, "_poll_analysis", return_value=(1, 0, 10, 0)),
+            patch.object(service._cache, "save", side_effect=RuntimeError("cache write failed")),
+        ):
+            result = service._upload_and_scan(str(sample), file_hash)
+    finally:
+        service.close()
+    assert result["status"] == "ok"
+    assert result["was_uploaded"] is True
+    assert result["malicious"] == 1
+
+
 def test_upload_and_scan_malformed_poll_response_returns_error(tmp_path) -> None:
     service = _service(tmp_path)
     sample = tmp_path / "malformed.bin"

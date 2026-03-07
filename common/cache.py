@@ -64,7 +64,6 @@ class ScanCache:
 
     def clear(self) -> int:
         with self._lock:
-            self._memory.clear()
             conn = self._get_conn()
             cursor = conn.cursor()
             self._ensure_schema(cursor)
@@ -72,8 +71,15 @@ class ScanCache:
             deleted = int(cursor.fetchone()[0])
             cursor.execute("DELETE FROM scans")
             cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            original_row_count = self._row_count
             self._row_count = 0
-            conn.commit()
+            try:
+                conn.commit()
+            except Exception:
+                self._rollback_conn(conn)
+                self._row_count = original_row_count
+                raise
+            self._memory.clear()
         return deleted
 
     def get(self, file_hash: str) -> tuple[int, int, int, int] | None:
@@ -85,18 +91,25 @@ class ScanCache:
             conn = self._get_conn()
             cursor = conn.cursor()
             hash_bytes = bytes.fromhex(file_hash)
+            cutoff_ts = self._cutoff_ts()
             cursor.execute("SELECT stats, timestamp FROM scans WHERE hash = ?", (hash_bytes,))
             row = cursor.fetchone()
             if row:
                 stats_blob, timestamp = row
-                if int(timestamp) >= self._cutoff_ts():
+                if int(timestamp) >= cutoff_ts:
                     stats = struct.unpack(">4I", stats_blob)
                     self._memory_set(file_hash, stats, int(timestamp))
                     return stats
+                original_row_count = self._row_count
                 cursor.execute("DELETE FROM scans WHERE hash = ?", (hash_bytes,))
                 if cursor.rowcount > 0:
                     self._row_count = max(0, self._row_count - cursor.rowcount)
-                conn.commit()
+                try:
+                    conn.commit()
+                except Exception:
+                    self._rollback_conn(conn)
+                    self._row_count = original_row_count
+                    raise
         return None
 
     def save(self, file_hash: str, stats: tuple[int, int, int, int]) -> None:
@@ -106,6 +119,9 @@ class ScanCache:
             hash_bytes = bytes.fromhex(file_hash)
             packed_stats = struct.pack(">4I", *stats)
             timestamp = int(time.time())
+            cutoff_ts = timestamp - self._expiry_seconds
+            original_row_count = self._row_count
+            original_writes_since_trim = self._writes_since_trim
             cursor.execute(
                 "INSERT OR IGNORE INTO scans (hash, stats, timestamp) VALUES (?, ?, ?)",
                 (hash_bytes, packed_stats, timestamp),
@@ -117,15 +133,20 @@ class ScanCache:
                     "UPDATE scans SET stats = ?, timestamp = ? WHERE hash = ?",
                     (packed_stats, timestamp, hash_bytes),
                 )
-            self._enforce_row_cap_locked(cursor)
             self._writes_since_trim += 1
             if self._writes_since_trim >= self._TRIM_INTERVAL_WRITES:
-                cursor.execute("DELETE FROM scans WHERE timestamp < ?", (self._cutoff_ts(),))
+                cursor.execute("DELETE FROM scans WHERE timestamp < ?", (cutoff_ts,))
                 if cursor.rowcount > 0:
                     self._row_count = max(0, self._row_count - cursor.rowcount)
-                self._enforce_row_cap_locked(cursor)
                 self._writes_since_trim = 0
-            conn.commit()
+            self._enforce_row_cap_locked(cursor)
+            try:
+                conn.commit()
+            except Exception:
+                self._rollback_conn(conn)
+                self._row_count = original_row_count
+                self._writes_since_trim = original_writes_since_trim
+                raise
             self._memory_set(file_hash, stats, timestamp)
 
     _CREATE_SQL = (
@@ -190,6 +211,8 @@ class ScanCache:
 
     def _prune_locked(self, cursor: sqlite3.Cursor) -> None:
         cursor.execute("DELETE FROM scans WHERE timestamp < ?", (self._cutoff_ts(),))
+        if cursor.rowcount > 0:
+            self._row_count = max(0, self._row_count - cursor.rowcount)
         self._enforce_row_cap_locked(cursor)
 
     @staticmethod
@@ -199,6 +222,13 @@ class ScanCache:
 
     def _cutoff_ts(self) -> int:
         return int(time.time()) - self._expiry_seconds
+
+    @staticmethod
+    def _rollback_conn(conn: sqlite3.Connection) -> None:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
 
     def _memory_get(self, file_hash: str) -> tuple[int, int, int, int] | None:
         result = self._memory.get(file_hash)

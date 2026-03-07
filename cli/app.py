@@ -210,14 +210,17 @@ def main() -> None:
     if args.workers < 1:
         parser.error("--workers must be >= 1")
 
-    has_admin_action = _handle_admin_actions(parser, args, explicit_api_key, args.workers)
-    if has_admin_action and not has_scan_input:
-        return
-
     if args.recursive and not args.directory:
         parser.error("--recursive can only be used with --directory")
     if args.directory and args.files:
         parser.error("Use either --directory OR --file inputs, not both")
+    if args.upload_filter and not args.upload:
+        parser.error("--upload-filter requires --upload")
+
+    has_admin_action = _handle_admin_actions(parser, args, explicit_api_key, args.workers)
+    if has_admin_action and not has_scan_input:
+        return
+
     if not has_scan_input:
         parser.error("Provide scan input via --directory, --file, or --hash.")
 
@@ -262,8 +265,6 @@ def main() -> None:
         completed += 1
         print_result(result, index=completed, total=display_total)
 
-    if args.upload_filter and not args.upload:
-        parser.error("--upload-filter requires --upload")
     upload_filter = _build_upload_filter(args.upload_filter) if args.upload_filter else None
     if args.upload:
         if args.upload_filter:

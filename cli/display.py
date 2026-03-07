@@ -192,7 +192,8 @@ def print_scan_summary(results: list[dict]) -> None:
     if suspicious_items:
         print_subsection("SUSPICIOUS ITEMS", Fore.YELLOW, leading_newline=False)
         for item in suspicious_items:
-            print(f"  - {_item_label(item)} ({item.get('malicious', 0)} detections)")
+            detections = int(item.get("malicious", 0)) + int(item.get("suspicious", 0))
+            print(f"  - {_item_label(item)} ({detections} detections)")
     if undetected_items:
         print_subsection("UNDETECTED ITEMS", Fore.CYAN, leading_newline=False)
         for item in undetected_items:

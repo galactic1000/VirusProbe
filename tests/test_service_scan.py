@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from unittest.mock import patch
 
 import vt
@@ -120,3 +121,42 @@ def test_scan_hashes_on_result_callback_fires_for_each_item(tmp_path) -> None:
         service.close()
     assert len(fired) == 2
     assert all(r["status"] == "ok" for r in fired)
+
+
+def test_scan_hash_returns_success_when_cache_save_fails(tmp_path) -> None:
+    service = _service(tmp_path)
+
+    class _FakeResponse:
+        @staticmethod
+        def json() -> dict:
+            return {
+                "data": {
+                    "attributes": {
+                        "last_analysis_stats": {
+                            "malicious": 0,
+                            "suspicious": 3,
+                            "harmless": 10,
+                            "undetected": 2,
+                        }
+                    }
+                }
+            }
+
+    class _FakeClient:
+        def get(self, path: str) -> _FakeResponse:
+            assert path == f"/files/{'a' * 64}"
+            return _FakeResponse()
+
+    try:
+        with (
+            patch.object(service, "_get_client", return_value=_FakeClient()),
+            patch.object(service._rate_limiter, "acquire"),
+            patch.object(service._cache, "save", side_effect=sqlite3.OperationalError("disk full")),
+        ):
+            result = service.scan_hash("a" * 64)
+    finally:
+        service.close()
+
+    assert result["status"] == "ok"
+    assert result["threat_level"] == "Suspicious"
+    assert result["was_cached"] is False
