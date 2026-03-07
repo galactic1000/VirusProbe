@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 import ttkbootstrap as ttk
-from ttkbootstrap.dialogs.dialogs import Messagebox, Querybox
+from ttkbootstrap.dialogs.dialogs import Messagebox
 from ttkbootstrap.dialogs.base import Dialog
 from ttkbootstrap.dialogs.query import QueryDialog
 
@@ -79,7 +79,7 @@ class AddHashesDialog(AppDialog):
     _AUTO_CLOSE_DELAY = 500
 
     def __init__(self, parent: tk.Tk, add_item: Callable[[str, str], bool]) -> None:
-        super().__init__(parent, "Add multiple SHA-256 hashes")
+        super().__init__(parent, "Add SHA-256 Hashes")
         self._add_item = add_item
         self._status_var = tk.StringVar(value="")
         self._text: tk.Text | None = None
@@ -88,10 +88,18 @@ class AddHashesDialog(AppDialog):
         frame = ttk.Frame(master, padding=12)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frame, text="Add SHA-256 hashes (one per line):").pack(anchor=tk.W, pady=(0, 6))
+        ttk.Label(frame, text="Enter one or more SHA-256 hashes.", font=("-size 11 -weight bold")).pack(anchor=tk.W)
+        ttk.Label(
+            frame,
+            text="Enter one hash per line. A single hash works too.",
+        ).pack(anchor=tk.W, pady=(2, 8))
 
         self._text = tk.Text(frame, height=12, wrap=tk.WORD)
         self._text.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(
+            frame,
+            text="Example: 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+        ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Label(frame, textvariable=self._status_var).pack(anchor=tk.W, pady=(6, 0))
         self._initial_focus = self._text
 
@@ -116,10 +124,12 @@ class AddHashesDialog(AppDialog):
 
         added = 0
         invalid: list[str] = []
+        duplicates = 0
         seen: set[str] = set()
         for token in tokens:
             value = token.lower()
             if value in seen:
+                duplicates += 1
                 continue
             seen.add(value)
             if not ScannerService.is_sha256(value):
@@ -128,11 +138,12 @@ class AddHashesDialog(AppDialog):
             if self._add_item("hash", value):
                 added += 1
 
-        self._status_var.set(
-            f"Added {added}. Skipped invalid: {len(invalid)}"
-            if invalid
-            else f"Added {added} hash(es)."
-        )
+        parts: list[str] = [f"Added {added} hash{'es' if added != 1 else ''}."]
+        if invalid:
+            parts.append(f"Skipped {len(invalid)} invalid.")
+        if duplicates:
+            parts.append(f"Ignored {duplicates} duplicate{'s' if duplicates != 1 else ''}.")
+        self._status_var.set(" ".join(parts))
         if added > 0:
             self._toplevel.after(self._AUTO_CLOSE_DELAY, self._toplevel.destroy)
 
@@ -429,22 +440,6 @@ def show_clear_cache_dialog(parent: tk.Tk, clear_fn: Callable[[], int]) -> int |
         return None
 
 
-def show_add_hash_dialog(parent: tk.Tk) -> str | None:
-    """Prompts for a single SHA-256 hash. Returns validated lowercase hash, or None."""
-    raw = Querybox.get_string("Enter SHA-256 hash (64 hex chars):", title="Add SHA-256 hash", parent=parent)
-    if raw is None:
-        return None
-    value = raw.strip()
-    if not ScannerService.is_sha256(value):
-        Messagebox.show_error(
-            "Hash must be exactly 64 hexadecimal characters.",
-            title="Invalid hash",
-            parent=parent,
-        )
-        return None
-    return value.lower()
-
-
 def show_advanced_dialog(
     parent: tk.Tk,
     current_rpm: int,
@@ -464,4 +459,3 @@ def show_advanced_dialog(
     dialog = AdvancedDialog(parent, current_rpm, current_workers, current_upload_mode, current_theme_mode)
     dialog.show()
     return dialog._result
-

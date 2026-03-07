@@ -39,7 +39,6 @@ class MainWindow:
         on_clear_cache: Callable[[], None],
         on_set_api_key: Callable[[], None],
         on_add_files: Callable[[], None],
-        on_add_hash: Callable[[], None],
         on_add_hashes: Callable[[], None],
         on_remove_selected: Callable[[], None],
         on_clear_items: Callable[[], None],
@@ -60,7 +59,6 @@ class MainWindow:
             on_clear_cache=on_clear_cache,
             on_set_api_key=on_set_api_key,
             on_add_files=on_add_files,
-            on_add_hash=on_add_hash,
             on_add_hashes=on_add_hashes,
             on_remove_selected=on_remove_selected,
             on_clear_items=on_clear_items,
@@ -77,7 +75,6 @@ class MainWindow:
         on_clear_cache: Callable[[], None],
         on_set_api_key: Callable[[], None],
         on_add_files: Callable[[], None],
-        on_add_hash: Callable[[], None],
         on_add_hashes: Callable[[], None],
         on_remove_selected: Callable[[], None],
         on_clear_items: Callable[[], None],
@@ -114,8 +111,7 @@ class MainWindow:
             activeborderwidth=0,
         )
         add_menu.add_command(label="Add File(s)...", command=on_add_files)
-        add_menu.add_command(label="Add SHA-256 hash...", command=on_add_hash)
-        add_menu.add_command(label="Add multiple SHA-256 hashes...", command=on_add_hashes)
+        add_menu.add_command(label="Add SHA-256 hash(es)...", command=on_add_hashes)
         self.add_menu_btn["menu"] = add_menu
         self.add_menu_btn.pack(side=tk.LEFT)
         self.remove_btn = ttk.Button(left, text="Remove Selected", command=on_remove_selected, bootstyle="secondary")

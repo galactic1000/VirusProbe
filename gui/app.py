@@ -21,7 +21,6 @@ from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS
 
 from .style import apply_theme, apply_titlebar_theme, theme_name
 from .dialogs import (
-    show_add_hash_dialog,
     show_add_hashes_dialog,
     show_advanced_dialog,
     show_clear_cache_dialog,
@@ -64,7 +63,6 @@ class VirusProbeGUI(ttk.Window):
             on_clear_cache=self.on_clear_cache,
             on_set_api_key=self.on_set_api_key,
             on_add_files=self.on_add_files,
-            on_add_hash=self.on_add_hash,
             on_add_hashes=self.on_add_hashes,
             on_remove_selected=self.on_remove_selected,
             on_clear_items=self.on_clear_items,
@@ -130,11 +128,6 @@ class VirusProbeGUI(ttk.Window):
     def on_add_files(self) -> None:
         for path in filedialog.askopenfilenames(parent=self, title="Select files to scan"):
             self._add_item("file", str(path))
-
-    def on_add_hash(self) -> None:
-        value = show_add_hash_dialog(self)
-        if value is not None:
-            self._add_item("hash", value)
 
     def on_add_hashes(self) -> None:
         show_add_hashes_dialog(self, self._add_item)

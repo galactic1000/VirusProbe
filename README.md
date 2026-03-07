@@ -170,7 +170,7 @@ VirusProbe-CLI -d /path/to/folder --upload --upload-filter "*.exe" "*.dll"
 ## GUI Usage
 
 - **Set API Key**: Store/remove key in `.env`
-- **Add Item**: Add files, single SHA-256 hash, or multiple hashes (one per line)
+- **Add Item**: Add files or SHA-256 hash(es) (one per line)
 - **Drag-and-drop**: Accepts files directly
 - **Advanced Settings**: Configure theme (auto/light/dark), workers (1-50), rate limit, and upload mode (never/manual/auto)
   - Manual mode: `Upload` button appears in toolbar - select `Undetected` rows and click to upload
