@@ -12,8 +12,8 @@ from typing import Callable
 
 from colorama import Fore, init
 
-from common import CACHE_DB, ScannerService, get_api_key, remove_api_key_from_env, save_api_key_to_env, write_report
-from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS
+from common import CACHE_DB, ScannerService, get_api_key, get_upload_timeout_minutes, remove_api_key_from_env, save_api_key_to_env, write_report
+from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
 from .display import (
     SEPARATOR_WIDTH,
     TOOL_VERSION,
@@ -60,6 +60,13 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="+",
         metavar="GLOB",
         help="Only upload undetected files matching glob patterns (filename: *.exe; path: */src/*.dll). Requires --upload.",
+    )
+    upload.add_argument(
+        "--upload-timeout",
+        type=int,
+        default=None,
+        metavar="MINUTES",
+        help=f"Max minutes to wait for uploaded file analysis (default: {DEFAULT_UPLOAD_TIMEOUT_MINUTES}, 0 = no timeout)",
     )
 
     output = parser.add_argument_group("Output")
@@ -176,6 +183,10 @@ def main() -> None:
 
     if args.requests_per_minute < 0:
         parser.error("--requests-per-minute must be >= 0")
+    if args.upload_timeout is None:
+        args.upload_timeout = get_upload_timeout_minutes() or DEFAULT_UPLOAD_TIMEOUT_MINUTES
+    if args.upload_timeout < 0:
+        parser.error("--upload-timeout must be >= 0")
     if args.workers is None:
         args.workers = args.requests_per_minute if args.requests_per_minute > 0 else DEFAULT_SCAN_WORKERS
     if args.workers < 1:
@@ -241,7 +252,15 @@ def main() -> None:
             print(format_colored(f"Upload mode: undetected files matching {args.upload_filter} will be submitted to VirusTotal.", Fore.YELLOW))
         else:
             print(format_colored("Upload mode: undetected files will be submitted to VirusTotal for scanning.", Fore.YELLOW))
-    service = ScannerService(api_key=api_key, cache_db=CACHE_DB, max_workers=args.workers, requests_per_minute=args.requests_per_minute, upload_undetected=args.upload, upload_filter=upload_filter)
+    service = ScannerService(
+        api_key=api_key,
+        cache_db=CACHE_DB,
+        max_workers=args.workers,
+        requests_per_minute=args.requests_per_minute,
+        upload_timeout_minutes=args.upload_timeout,
+        upload_undetected=args.upload,
+        upload_filter=upload_filter,
+    )
     cancel_event = threading.Event()
     cancelled = False
     try:

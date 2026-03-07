@@ -131,6 +131,17 @@ def test_poll_analysis_uses_rate_limiter_for_each_poll(tmp_path) -> None:
     assert acquire_mock.call_count == 2
 
 
+def test_poll_analysis_uses_configured_timeout(tmp_path) -> None:
+    service = ScannerService(api_key="test", cache_db=tmp_path / "vt_cache.db", upload_timeout_minutes=42)
+    service.init_cache()
+    try:
+        with patch("common.service_upload.poll_analysis", return_value=(0, 0, 1, 2)) as poll_mock:
+            service._poll_analysis("analysis-id")
+    finally:
+        service.close()
+    assert poll_mock.call_args.kwargs["timeout_minutes"] == 42
+
+
 def test_poll_interval_is_tied_to_requests_per_minute(tmp_path) -> None:
     assert service_upload.poll_interval_seconds(4) == 15
     assert service_upload.poll_interval_seconds(2) == 30
@@ -261,4 +272,3 @@ def test_upload_file_rejects_over_650mb(tmp_path) -> None:
                 assert "max 650 MB" in str(exc)
     finally:
         service.close()
-

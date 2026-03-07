@@ -289,6 +289,7 @@ class AdvancedDialog(AppDialog):
 
     _MAX_WORKERS = 50
     _MAX_RPM = 500
+    _MAX_UPLOAD_TIMEOUT = 7200
     _THEME_VALUES = (THEME_AUTO, THEME_DARK, THEME_LIGHT)
 
     def __init__(
@@ -296,6 +297,7 @@ class AdvancedDialog(AppDialog):
         parent: tk.Tk,
         current_rpm: int,
         current_workers: int,
+        current_upload_timeout: int,
         current_upload_mode: str,
         current_theme_mode: str,
     ) -> None:
@@ -303,8 +305,10 @@ class AdvancedDialog(AppDialog):
         theme_mode = current_theme_mode if current_theme_mode in self._THEME_VALUES else THEME_AUTO
         self._current_rpm = current_rpm
         self._current_workers = current_workers
+        self._current_upload_timeout = current_upload_timeout
         self._rpm_var = tk.StringVar(value=str(current_rpm))
         self._workers_var = tk.StringVar(value=str(current_workers))
+        self._upload_timeout_var = tk.StringVar(value=str(current_upload_timeout))
         self._theme_var = tk.StringVar(value=theme_mode.title())
         self._upload_enabled_var = tk.BooleanVar(value=current_upload_mode in (UPLOAD_MANUAL, UPLOAD_AUTO))
         self._auto_upload_var = tk.BooleanVar(value=current_upload_mode == UPLOAD_AUTO)
@@ -326,16 +330,25 @@ class AdvancedDialog(AppDialog):
         ttk.Label(body, text="Req/min (0 = unlimited):").grid(row=2, column=0, sticky=tk.W, pady=(0, 10))
         ttk.Spinbox(body, from_=0, to=self._MAX_RPM, textvariable=self._rpm_var, width=6).grid(row=2, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
 
-        ttk.Separator(body, orient=tk.HORIZONTAL).grid(row=3, column=0, columnspan=2, sticky=tk.EW, pady=(4, 10))
+        ttk.Label(body, text="Upload timeout (min, 0 = none):").grid(row=3, column=0, sticky=tk.W, pady=(0, 10))
+        ttk.Spinbox(
+            body,
+            from_=0,
+            to=self._MAX_UPLOAD_TIMEOUT,
+            textvariable=self._upload_timeout_var,
+            width=6,
+        ).grid(row=3, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
+
+        ttk.Separator(body, orient=tk.HORIZONTAL).grid(row=4, column=0, columnspan=2, sticky=tk.EW, pady=(4, 10))
 
         ttk.Checkbutton(
             body,
             text="Enable upload to VirusTotal for undetected files",
             variable=self._upload_enabled_var,
-        ).grid(row=4, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
+        ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
 
         sub_frame = ttk.Frame(body)
-        sub_frame.grid(row=5, column=0, columnspan=2, sticky=tk.W, padx=(20, 0), pady=(2, 2))
+        sub_frame.grid(row=6, column=0, columnspan=2, sticky=tk.W, padx=(20, 0), pady=(2, 2))
 
         auto_chk = ttk.Checkbutton(sub_frame, text="Auto-upload all undetected items (uses extra API quota)", variable=self._auto_upload_var)
         auto_chk.pack(anchor=tk.W)
@@ -366,6 +379,10 @@ class AdvancedDialog(AppDialog):
             rpm = max(0, int(self._rpm_var.get()))
         except ValueError:
             rpm = self._current_rpm
+        try:
+            upload_timeout = max(0, int(self._upload_timeout_var.get()))
+        except ValueError:
+            upload_timeout = self._current_upload_timeout
 
         if not self._upload_enabled_var.get():
             mode = UPLOAD_NEVER
@@ -375,7 +392,7 @@ class AdvancedDialog(AppDialog):
             mode = UPLOAD_MANUAL
 
         selected_theme = self._theme_var.get().lower()
-        self._result = (rpm, workers, mode, selected_theme)
+        self._result = (rpm, workers, upload_timeout, mode, selected_theme)
         self._toplevel.destroy()
 
 
@@ -445,18 +462,19 @@ def show_advanced_dialog(
     parent: tk.Tk,
     current_rpm: int,
     current_workers: int,
+    current_upload_timeout: int,
     current_upload_mode: str = "never",
     current_theme_mode: str = "auto",
-) -> tuple[int, int, str, str] | None:
+) -> tuple[int, int, int, str, str] | None:
     """Shows Advanced Scan Settings.
 
-    Returns (rpm, workers, upload_mode, theme_mode) on Apply, None on Cancel.
+    Returns (rpm, workers, upload_timeout_minutes, upload_mode, theme_mode) on Apply, None on Cancel.
     upload_mode is one of 'never', 'manual', 'auto'.
     Checkbox mapping:
       main OFF              -> 'never'
       main ON, auto OFF     -> 'manual'  (toolbar Upload button; enabled when undetected files are selectable)
       main ON, auto ON      -> 'auto'    (upload happens automatically)
     """
-    dialog = AdvancedDialog(parent, current_rpm, current_workers, current_upload_mode, current_theme_mode)
+    dialog = AdvancedDialog(parent, current_rpm, current_workers, current_upload_timeout, current_upload_mode, current_theme_mode)
     dialog.show()
     return dialog._result

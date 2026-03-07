@@ -116,6 +116,7 @@ python cli.py [options]
 | `-r, --recursive` | Recurse subdirectories (directory mode only) |
 | `-u, --upload` | Upload files not found in VirusTotal and wait for analysis results (uses extra API quota) |
 | `--upload-filter GLOB [GLOB ...]` | Only upload files matching these globs (requires `--upload`): filename `*.exe`; path `*/src/*.dll` (matched against resolved absolute paths). |
+| `--upload-timeout MINUTES` | Max minutes to wait for uploaded file analysis before failing that upload (`0` = no timeout, default: `20`) |
 | `-o, --output [OUTPUT]` | Write report to file; when used without value, auto-generates `scan_report_YYYYMMDD_HHMMSS.<format>` |
 | `--format {json,csv,txt,md}` | Report format for `--output` (default: `json`) |
 | `--rpm, --requests-per-minute N` | Max VirusTotal API requests per minute (default: `4`, `0` = unlimited) |
@@ -172,7 +173,7 @@ VirusProbe-CLI -d /path/to/folder --upload --upload-filter "*.exe" "*.dll"
 - **Set API Key**: Store/remove key in `.env`
 - **Add Item**: Add files or SHA-256 hash(es) (one per line)
 - **Drag-and-drop**: Accepts files directly
-- **Advanced Settings**: Configure theme (auto/light/dark), workers (1-50), rate limit, and upload mode (never/manual/auto)
+- **Advanced Settings**: Configure theme (auto/light/dark), workers (1-50), rate limit, upload timeout, and upload mode (never/manual/auto). Setting rate limit or upload timeout to `0` disables that limit.
   - Manual mode: `Upload` button appears in toolbar - select `Undetected` rows and click to upload
   - Auto mode: Undetected files upload automatically during scan
   - Settings persist to `.env`
@@ -184,7 +185,7 @@ VirusProbe-CLI -d /path/to/folder --upload --upload-filter "*.exe" "*.dll"
 
 VirusProbe uses local SQLite caching (`.cache/vt_cache.db`) and stores settings in `.env`. Both CLI and GUI can clear the cache.
 
-Supported environment variables: `VT_API_KEY`, `VT_REQUESTS_PER_MINUTE`, `VT_WORKERS`.
+Supported environment variables: `VT_API_KEY`, `VT_REQUESTS_PER_MINUTE`, `VT_WORKERS`, `VT_UPLOAD_TIMEOUT` (minutes).
 
 ## Verdict Criteria
 

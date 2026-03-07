@@ -12,17 +12,19 @@ from .env import (
     get_api_key,
     get_requests_per_minute,
     get_theme_mode,
+    get_upload_timeout_minutes,
     get_upload_mode,
     get_workers,
     remove_api_key_from_env,
     save_api_key_to_env,
     save_requests_per_minute_to_env,
     save_theme_mode_to_env,
+    save_upload_timeout_minutes_to_env,
     save_upload_mode_to_env,
     save_workers_to_env,
 )
 from .reporting import build_summary, write_report
-from .service import ScannerService
+from .service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES, ScannerService
 
 __all__ = [
     "BASE_DIR",
@@ -37,6 +39,8 @@ __all__ = [
     "save_requests_per_minute_to_env",
     "get_workers",
     "save_workers_to_env",
+    "get_upload_timeout_minutes",
+    "save_upload_timeout_minutes_to_env",
     "get_theme_mode",
     "save_theme_mode_to_env",
     "get_upload_mode",
@@ -47,4 +51,7 @@ __all__ = [
     "UPLOAD_NEVER",
     "UPLOAD_MANUAL",
     "UPLOAD_AUTO",
+    "DEFAULT_REQUESTS_PER_MINUTE",
+    "DEFAULT_SCAN_WORKERS",
+    "DEFAULT_UPLOAD_TIMEOUT_MINUTES",
 ]

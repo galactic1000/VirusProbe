@@ -17,7 +17,7 @@ from ttkbootstrap.dialogs.dialogs import Messagebox
 from ttkbootstrap.widgets import ToastNotification
 
 from common import CACHE_DB, THEME_AUTO, UPLOAD_AUTO, get_theme_mode
-from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS
+from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
 
 from .style import apply_theme, apply_titlebar_theme, theme_name
 from .dialogs import (
@@ -83,6 +83,7 @@ class VirusProbeGUI(ttk.Window):
 
         self.rpm_var = tk.StringVar(value=str(self.model.saved_rpm))
         self.workers_var = tk.StringVar(value=str(self.model.saved_workers))
+        self.upload_timeout_var = tk.StringVar(value=str(self.model.saved_upload_timeout))
 
         self.initialize_view()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -151,15 +152,17 @@ class VirusProbeGUI(ttk.Window):
             self,
             self._parse_int(self.rpm_var.get(), DEFAULT_REQUESTS_PER_MINUTE, minimum=0),
             self._parse_int(self.workers_var.get(), DEFAULT_SCAN_WORKERS, minimum=1),
+            self._parse_int(self.upload_timeout_var.get(), DEFAULT_UPLOAD_TIMEOUT_MINUTES, minimum=0),
             self.model.upload_mode,
             self.model.theme_mode,
         )
         if result is None:
             return
-        rpm, workers, mode, theme_mode = result
+        rpm, workers, upload_timeout, mode, theme_mode = result
         self.rpm_var.set(str(rpm))
         self.workers_var.set(str(workers))
-        self.model.set_advanced(rpm, workers, mode, theme_mode)
+        self.upload_timeout_var.set(str(upload_timeout))
+        self.model.set_advanced(rpm, workers, upload_timeout, mode, theme_mode)
         apply_theme(self, theme_mode)
         self._update_upload_indicator()
         self._update_upload_action_visibility()
@@ -220,7 +223,7 @@ class VirusProbeGUI(ttk.Window):
         self.view.set_progress(0, self.scan_total)
         self._set_entry_rows_status(self.pending_entries, "Scanning...")
 
-        self.current_rpm, self.current_workers = self._current_limits()
+        self.current_rpm, self.current_workers, self.current_upload_timeout = self._current_limits()
         self._begin_busy_state(self.on_scan)
         self.is_scanning = True
         self.view.report_button.configure(state="disabled")
@@ -232,6 +235,7 @@ class VirusProbeGUI(ttk.Window):
             scanner = self.model.acquire_scanner(
                 requests_per_minute=self.current_rpm,
                 workers=self.current_workers,
+                upload_timeout=self.current_upload_timeout,
                 upload_undetected=(self.model.upload_mode == UPLOAD_AUTO),
             )
 
@@ -311,10 +315,11 @@ class VirusProbeGUI(ttk.Window):
 
     def _upload_worker(self, entries: list[tuple[str, str, str]]) -> None:
         try:
-            current_rpm, current_workers = self._current_limits()
+            current_rpm, current_workers, current_upload_timeout = self._current_limits()
             scanner = self.model.acquire_scanner(
                 requests_per_minute=current_rpm,
                 workers=max(1, min(current_workers, len(entries))),
+                upload_timeout=current_upload_timeout,
                 upload_undetected=False,
             )
 
@@ -426,10 +431,11 @@ class VirusProbeGUI(ttk.Window):
     def _parse_int(self, raw: str, default: int, minimum: int) -> int:
         return self.model.parse_int(raw, default, minimum)
 
-    def _current_limits(self) -> tuple[int, int]:
+    def _current_limits(self) -> tuple[int, int, int]:
         rpm = self._parse_int(self.rpm_var.get(), DEFAULT_REQUESTS_PER_MINUTE, minimum=0)
         workers = self._parse_int(self.workers_var.get(), DEFAULT_SCAN_WORKERS, minimum=1)
-        return rpm, workers
+        upload_timeout = self._parse_int(self.upload_timeout_var.get(), DEFAULT_UPLOAD_TIMEOUT_MINUTES, minimum=0)
+        return rpm, workers, upload_timeout
 
     def _request_cancel(self, text: str) -> None:
         self.cancel_event.set()

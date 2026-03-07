@@ -21,6 +21,8 @@ RPM_ENV_VAR = "VT_REQUESTS_PER_MINUTE"
 
 WORKERS_ENV_VAR = "VT_WORKERS"
 
+UPLOAD_TIMEOUT_ENV_VAR = "VT_UPLOAD_TIMEOUT"
+
 UPLOAD_MODE_ENV_VAR = "VT_GUI_UPLOAD_MODE"
 # Valid values for UPLOAD_MODE_ENV_VAR:
 UPLOAD_NEVER = "never"
@@ -67,6 +69,18 @@ def get_workers() -> int | None:
 def save_workers_to_env(workers: int) -> None:
     dotenv.set_key(DOTENV_PATH, WORKERS_ENV_VAR, str(workers), quote_mode="never")
     os.environ[WORKERS_ENV_VAR] = str(workers)
+
+
+def get_upload_timeout_minutes() -> int | None:
+    raw = os.environ.get(UPLOAD_TIMEOUT_ENV_VAR, "").strip()
+    if raw.isdigit() and int(raw) >= 0:
+        return int(raw)
+    return None
+
+
+def save_upload_timeout_minutes_to_env(timeout_minutes: int) -> None:
+    dotenv.set_key(DOTENV_PATH, UPLOAD_TIMEOUT_ENV_VAR, str(timeout_minutes), quote_mode="never")
+    os.environ[UPLOAD_TIMEOUT_ENV_VAR] = str(timeout_minutes)
 
 
 def get_upload_mode() -> str:

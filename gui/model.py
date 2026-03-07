@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from common import (
+    DEFAULT_REQUESTS_PER_MINUTE,
+    DEFAULT_SCAN_WORKERS,
+    DEFAULT_UPLOAD_TIMEOUT_MINUTES,
     ScannerService,
     THEME_AUTO,
     THEME_DARK,
@@ -15,16 +18,17 @@ from common import (
     get_api_key,
     get_requests_per_minute,
     get_theme_mode,
+    get_upload_timeout_minutes,
     get_upload_mode,
     get_workers,
     remove_api_key_from_env,
     save_api_key_to_env,
     save_requests_per_minute_to_env,
     save_theme_mode_to_env,
+    save_upload_timeout_minutes_to_env,
     save_upload_mode_to_env,
     save_workers_to_env,
 )
-from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS
 
 
 class AppModel:
@@ -35,11 +39,12 @@ class AppModel:
         self.theme_mode: str = get_theme_mode() or THEME_AUTO
         self.saved_rpm = get_requests_per_minute() or DEFAULT_REQUESTS_PER_MINUTE
         self.saved_workers = get_workers() or DEFAULT_SCAN_WORKERS
+        self.saved_upload_timeout = get_upload_timeout_minutes() or DEFAULT_UPLOAD_TIMEOUT_MINUTES
         self.default_report_dir = str(Path.home())
 
         self._scanner: ScannerService | None = None
         self._scanner_lock = threading.Lock()
-        self._scanner_config: tuple[str, int, int, bool] | None = None
+        self._scanner_config: tuple[str, int, int, int, bool] | None = None
         self._results_lock = threading.Lock()
         self._last_results_by_key: dict[tuple[str, str], dict[str, Any]] = {}
 
@@ -54,13 +59,15 @@ class AppModel:
             remove_api_key_from_env()
         self.reset_scanner()
 
-    def set_advanced(self, rpm: int, workers: int, upload_mode: str, theme_mode: str) -> None:
+    def set_advanced(self, rpm: int, workers: int, upload_timeout: int, upload_mode: str, theme_mode: str) -> None:
         self.saved_rpm = max(0, int(rpm))
         self.saved_workers = max(1, int(workers))
+        self.saved_upload_timeout = max(0, int(upload_timeout))
         self.upload_mode = upload_mode
         self.theme_mode = theme_mode if theme_mode in (THEME_AUTO, THEME_DARK, THEME_LIGHT) else THEME_AUTO
         save_requests_per_minute_to_env(self.saved_rpm)
         save_workers_to_env(self.saved_workers)
+        save_upload_timeout_minutes_to_env(self.saved_upload_timeout)
         save_upload_mode_to_env(upload_mode)
         save_theme_mode_to_env(self.theme_mode)
         self.reset_scanner()
@@ -73,8 +80,8 @@ class AppModel:
             self._scanner = None
             self._scanner_config = None
 
-    def acquire_scanner(self, requests_per_minute: int, workers: int, upload_undetected: bool) -> ScannerService:
-        desired = (self.api_key or "", requests_per_minute, workers, upload_undetected)
+    def acquire_scanner(self, requests_per_minute: int, workers: int, upload_timeout: int, upload_undetected: bool) -> ScannerService:
+        desired = (self.api_key or "", requests_per_minute, workers, upload_timeout, upload_undetected)
         with self._scanner_lock:
             if self._scanner is not None and self._scanner_config == desired:
                 return self._scanner
@@ -86,6 +93,7 @@ class AppModel:
                 cache_db=self.cache_db,
                 requests_per_minute=requests_per_minute,
                 max_workers=workers,
+                upload_timeout_minutes=upload_timeout,
                 upload_undetected=upload_undetected,
             )
             scanner.init_cache()

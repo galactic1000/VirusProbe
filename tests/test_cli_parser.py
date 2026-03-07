@@ -37,3 +37,15 @@ def test_requests_per_minute_parsing(rpm_flags, expected) -> None:
     parser = _build_parser()
     args = parser.parse_args(["-s", "a" * 64] + rpm_flags)
     assert args.requests_per_minute == expected
+
+
+def test_upload_timeout_parsing() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["-s", "a" * 64, "--upload-timeout", "30"])
+    assert args.upload_timeout == 30
+
+
+def test_upload_timeout_accepts_zero() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["-s", "a" * 64, "--upload-timeout", "0"])
+    assert args.upload_timeout == 0

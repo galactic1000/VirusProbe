@@ -18,6 +18,7 @@ from . import service_upload
 
 DEFAULT_SCAN_WORKERS = 4
 DEFAULT_REQUESTS_PER_MINUTE = 4
+DEFAULT_UPLOAD_TIMEOUT_MINUTES = service_upload.DEFAULT_UPLOAD_TIMEOUT_MINUTES
 
 
 class _HashCancelled(Exception):
@@ -38,6 +39,7 @@ class ScannerService:
         memory_cache_max_entries: int = 512,
         max_workers: int | None = None,
         requests_per_minute: int = DEFAULT_REQUESTS_PER_MINUTE,
+        upload_timeout_minutes: int = DEFAULT_UPLOAD_TIMEOUT_MINUTES,
         upload_undetected: bool = False,
         upload_filter: Callable[[str], bool] | None = None,
     ) -> None:
@@ -61,6 +63,7 @@ class ScannerService:
         self._clients: list[vt.Client] = []
         self._clients_lock = threading.Lock()
         self._requests_per_minute = max(0, int(requests_per_minute))
+        self._upload_timeout_minutes = max(0, int(upload_timeout_minutes))
         self._closed = False
 
     def init_cache(self) -> None:
@@ -299,6 +302,7 @@ class ScannerService:
             get_client=self._get_client,
             rate_limit_acquire=self._rate_limiter.acquire,
             requests_per_minute=self._requests_per_minute,
+            timeout_minutes=self._upload_timeout_minutes,
             analysis_id=analysis_id,
             cancel_event=cancel_event,
         )
