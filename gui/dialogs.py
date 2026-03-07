@@ -91,14 +91,15 @@ class AddHashesDialog(AppDialog):
         ttk.Label(frame, text="Enter one or more SHA-256 hashes.", font=("-size 11 -weight bold")).pack(anchor=tk.W)
         ttk.Label(
             frame,
-            text="Enter one hash per line. A single hash works too.",
+            text="Enter one hash per line. A single hash is supported too.",
         ).pack(anchor=tk.W, pady=(2, 8))
 
-        self._text = tk.Text(frame, height=12, wrap=tk.WORD)
+        self._text = tk.Text(frame, height=10, wrap=tk.WORD)
         self._text.pack(fill=tk.BOTH, expand=True)
         ttk.Label(
             frame,
             text="Example: 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
+            foreground="#8f949b",
         ).pack(anchor=tk.W, pady=(8, 0))
         ttk.Label(frame, textvariable=self._status_var).pack(anchor=tk.W, pady=(6, 0))
         self._initial_focus = self._text
