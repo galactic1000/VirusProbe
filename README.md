@@ -12,8 +12,8 @@ An efficient malware scanning tool powered by VirusTotal. Scan files, directorie
 ### Option 1: Download Pre-built Executables (Recommended)
 
 Download the latest executables for your platform from [GitHub Releases](https://github.com/galactic1000/VirusProbe/releases):
-- `VirusProbe-CLI` - Command-line interface
-- `VirusProbe-GUI` - Graphical interface
+- `VirusProbe-CLI` - Command-line tool
+- `VirusProbe-GUI` - Desktop app
 
 Available for Windows, Linux, and macOS. No Python installation required.
 
