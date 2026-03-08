@@ -54,7 +54,9 @@ jobs:
           pyinstaller --onefile --name ${{ matrix.gui_name }} --windowed
           ${{ matrix.strip }} --additional-hooks-dir=.github/pyinstaller_hooks
           --add-data "gui/assets/icon.png:gui/assets"
-          --icon gui/assets/icon.png gui.py
+          --icon gui/assets/icon.png
+          --exclude-module PIL._avif --exclude-module PIL._webp
+          gui.py
 
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
