@@ -4,8 +4,8 @@ An efficient malware scanning tool powered by VirusTotal. Scan files, directorie
 
 ## Requirements
 
-- Python 3.11+
 - VirusTotal API key
+- Python 3.x if running from source
 
 ## Installation
 
