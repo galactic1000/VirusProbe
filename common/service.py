@@ -184,16 +184,12 @@ class ScannerService:
             (malicious, suspicious, harmless, undetected), was_cached = self._query_virustotal(file_hash)
         except vt.APIError as exc:
             if exc.code == "NotFoundError" and self.upload_undetected and (self.upload_filter is None or self.upload_filter(file_path)):
-                if cancel_event is None:
-                    return self._upload_and_scan(file_path, file_hash)
                 return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
             if exc.code == "NotFoundError":
                 result = self._not_found_result(file_hash)
                 result.update({"item": file_path, "type": "file"})
                 return result
-            result = self._hash_error(file_hash, str(exc), file_hash)
-            result.update({"item": file_path, "type": "file"})
-            return result
+            return self._error_result(file_path, "file", str(exc), file_hash)
         except ValueError as exc:
             result = self._error_result(file_path, "file", f"Unexpected VT response: {exc}", file_hash)
             return result

@@ -44,7 +44,7 @@ def test_scan_file_not_found_with_upload_enabled_triggers_upload(tmp_path) -> No
         service.close()
     assert result["status"] == "ok"
     assert result["was_uploaded"] is True
-    upload_mock.assert_called_once_with(str(sample), expected_hash)
+    upload_mock.assert_called_once_with(str(sample), expected_hash, cancel_event=None)
 
 
 def test_upload_and_scan_success_sets_uploaded_and_caches(tmp_path) -> None:
@@ -216,7 +216,7 @@ def test_upload_filter_allows_upload_when_matched(tmp_path) -> None:
         service.close()
     assert result["status"] == "ok"
     assert result["was_uploaded"] is True
-    upload_mock.assert_called_once_with(str(sample), expected_hash)
+    upload_mock.assert_called_once_with(str(sample), expected_hash, cancel_event=None)
 
 
 def test_upload_file_small_path_rate_limited_once(tmp_path) -> None:

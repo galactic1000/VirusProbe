@@ -67,8 +67,6 @@ def _system_prefers_dark_mode() -> bool:
 
 
 def _windows_prefers_dark_mode() -> bool:
-    if not sys.platform.startswith("win"):
-        return False
     try:
         with winreg.OpenKey( # type: ignore[attr-defined]
             winreg.HKEY_CURRENT_USER, # type: ignore[attr-defined]

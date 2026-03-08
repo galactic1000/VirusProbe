@@ -85,10 +85,6 @@ def print_banner() -> None:
     print(_hash_frame_line())
 
 
-def print_run_context(title: str, color: str = Fore.CYAN) -> None:
-    print_header(title, color)
-
-
 def _verdict_color(threat_level: str) -> str:
     if threat_level == "Cancelled":
         return Fore.MAGENTA
