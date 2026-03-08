@@ -9,7 +9,9 @@ import tkinter as tk
 
 from ttkbootstrap import Style
 
-if sys.platform.startswith("win"):
+_IS_WINDOWS = sys.platform.startswith("win")
+
+if _IS_WINDOWS:
     import ctypes
     import winreg
 
@@ -57,7 +59,7 @@ def _apply_bootstrap_theme(theme_mode: str) -> bool:
 
 
 def _system_prefers_dark_mode() -> bool:
-    if sys.platform.startswith("win"):
+    if _IS_WINDOWS:
         return _windows_prefers_dark_mode()
     if sys.platform == "darwin":
         return _macos_prefers_dark_mode()
