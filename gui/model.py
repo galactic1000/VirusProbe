@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from contextlib import suppress
 from pathlib import Path
@@ -75,7 +76,7 @@ class AppModel:
         save_upload_timeout_minutes_to_env(self.saved_upload_timeout)
         save_upload_mode_to_env(upload_mode)
         save_theme_mode_to_env(self.theme_mode)
-        self.reset_scanner()
+        self.invalidate_scanner_config()
 
     def reset_scanner(self) -> None:
         with self._scanner_lock:
@@ -85,7 +86,17 @@ class AppModel:
             self._scanner = None
             self._scanner_config = None
 
-    def acquire_scanner(self, requests_per_minute: int, workers: int, upload_timeout: int, upload_undetected: bool) -> ScannerService:
+    def invalidate_scanner_config(self) -> None:
+        with self._scanner_lock:
+            self._scanner_config = None
+
+    async def acquire_scanner_async(
+        self,
+        requests_per_minute: int,
+        workers: int,
+        upload_timeout: int,
+        upload_undetected: bool,
+    ) -> ScannerService:
         desired = (self.api_key or "", requests_per_minute, workers, upload_timeout, upload_undetected)
         with self._scanner_lock:
             if self._scanner is not None and self._scanner_config == desired:
@@ -101,20 +112,25 @@ class AppModel:
                 upload_timeout_minutes=upload_timeout,
                 upload_undetected=upload_undetected,
             )
-            scanner.init_cache()
+        await scanner.init_cache_async()
+        with self._scanner_lock:
+            if self._scanner is not None and self._scanner_config == desired:
+                with suppress(Exception):
+                    scanner.close()
+                return self._scanner
             self._scanner = scanner
             self._scanner_config = desired
             return scanner
 
-    def clear_cache(self) -> int:
+    async def clear_cache_async(self) -> int:
         if self._scanner is not None:
-            return self._scanner.clear_cache()
+            return await self._scanner.clear_cache_async()
         service = ScannerService(api_key=self.api_key or "", cache_db=self.cache_db)
         try:
-            return service.clear_cache()
+            return await service.clear_cache_async()
         finally:
             with suppress(Exception):
-                service.close()
+                await asyncio.get_running_loop().run_in_executor(None, service.close)
 
     def merge_results(self, new_results: list[dict[str, Any]]) -> None:
         with self._results_lock:

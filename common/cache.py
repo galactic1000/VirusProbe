@@ -112,6 +112,10 @@ class ScanCache:
                     raise
         return None
 
+    def peek_memory(self, file_hash: str) -> tuple[int, int, int, int] | None:
+        with self._lock:
+            return self._memory_get(file_hash)
+
     def save(self, file_hash: str, stats: tuple[int, int, int, int]) -> None:
         with self._lock:
             conn = self._get_conn()

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import fnmatch
+import signal
 import sys
 import threading
 from datetime import datetime
@@ -284,41 +286,52 @@ def main() -> None:
     )
     cancel_event = threading.Event()
     cancelled = False
+
+    original_sigint = signal.getsignal(signal.SIGINT)
+
+    def _sigint_handler(*_: object) -> None:
+        nonlocal cancelled
+        if not cancelled:
+            cancelled = True
+            cancel_event.set()
+            print(format_colored("\nCancellation requested. Finishing in-flight work...", Fore.YELLOW))
+        else:
+            signal.signal(signal.SIGINT, original_sigint)
+            raise KeyboardInterrupt
+
+    async def _run_scans_async() -> None:
+        async with service.async_session():
+            if args.directory:
+                await service.scan_directory(
+                    args.directory, recursive=args.recursive, on_result=on_result, cancel_event=cancel_event
+                )
+            if not cancel_event.is_set() and file_list:
+                await service.scan_files(file_list, on_result=on_result, cancel_event=cancel_event)
+            if not cancel_event.is_set() and hash_list:
+                await service.scan_hashes(hash_list, on_result=on_result, cancel_event=cancel_event)
+
     try:
         service.init_cache()
-
-        def _run_scan(call: Callable[[], list[dict]]) -> None:
-            nonlocal completed
-            before_results = len(results)
-            batch = call()
-            if len(results) == before_results and isinstance(batch, list) and batch:
-                for item in batch:
-                    results.append(item)
-                    completed += 1
-                    print_result(item, index=completed, total=display_total)
-
+        signal.signal(signal.SIGINT, _sigint_handler)
+        run_error: Exception | None = None
         try:
-            scans: list[Callable[[], list[dict]]] = []
-            if args.directory:
-                scans.append(lambda: service.scan_directory(args.directory, recursive=args.recursive, on_result=on_result, cancel_event=cancel_event))
-            if file_list:
-                scans.append(lambda: service.scan_files(file_list, on_result=on_result, cancel_event=cancel_event))
-            if hash_list:
-                scans.append(lambda: service.scan_hashes(hash_list, on_result=on_result, cancel_event=cancel_event))
-
-            for run_scan in scans:
-                if cancel_event.is_set():
-                    break
-                _run_scan(run_scan)
+            asyncio.run(_run_scans_async())
         except KeyboardInterrupt:
-            cancel_event.set()
             cancelled = True
-            print(format_colored("Cancellation requested. Finishing in-flight work...", Fore.YELLOW))
+        except Exception as exc:
+            run_error = exc
+        finally:
+            signal.signal(signal.SIGINT, original_sigint)
+
         if not results:
             if cancelled:
                 sys.exit(_EXIT_CANCELLED)
+            if run_error is not None:
+                raise run_error
             return
 
+        if run_error is not None:
+            print(format_colored(f"Scan aborted: {run_error}", Fore.RED))
         print_scan_summary(results)
         if args.output:
             write_report(results, args.output, report_format, separator_width=SEPARATOR_WIDTH)

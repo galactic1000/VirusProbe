@@ -92,7 +92,8 @@ class MainWindow:
         top_actions.pack(side=tk.RIGHT)
         self.set_api_key_btn = ttk.Button(top_actions, text="Set API Key", command=on_set_api_key, bootstyle="secondary")
         self.set_api_key_btn.pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Button(top_actions, text="Clear Cache", command=on_clear_cache, bootstyle="secondary").pack(side=tk.LEFT, padx=(0, 8))
+        self.clear_cache_btn = ttk.Button(top_actions, text="Clear Cache", command=on_clear_cache, bootstyle="secondary")
+        self.clear_cache_btn.pack(side=tk.LEFT, padx=(0, 8))
         self.advanced_btn = ttk.Button(top_actions, text="Advanced...", command=on_advanced, bootstyle="secondary")
         self.advanced_btn.pack(side=tk.LEFT)
 
@@ -217,9 +218,8 @@ class MainWindow:
         state = tk.NORMAL if enabled else tk.DISABLED
         self.remove_btn.configure(state=state)
         self.clear_btn.configure(state=state)
-        self.add_menu_btn.configure(state=state)
         self.set_api_key_btn.configure(state=state)
-        self.advanced_btn.configure(state=state)
+        self.clear_cache_btn.configure(state=state)
 
     def set_scan_button_scan(self, on_scan: Callable[[], None]) -> None:
         self.scan_btn.configure(state=tk.NORMAL, text="Scan", command=on_scan)

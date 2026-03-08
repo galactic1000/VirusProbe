@@ -23,14 +23,14 @@ from .style import apply_theme, apply_titlebar_theme, theme_name
 from .dialogs import (
     show_add_hashes_dialog,
     show_advanced_dialog,
-    show_clear_cache_dialog,
     show_generate_report_dialog,
     show_set_api_key_dialog,
 )
+from .async_runner import BackgroundAsyncRunner
 from .model import AppModel
 from .presenter import AppPresenter, masked_api_key_text, upload_indicator_text
 from .view import MainWindow
-from .workflows import run_scan_workflow, run_upload_workflow, upload_completion_feedback
+from .workflows import run_scan_workflow_async, run_upload_workflow_async, upload_completion_feedback
 
 
 class VirusProbeGUI(ttk.Window):
@@ -58,6 +58,7 @@ class VirusProbeGUI(ttk.Window):
         self.bind_all("<Map>", self._on_toplevel_map, add=True)
 
         self.model = AppModel(cache_db=CACHE_DB)
+        self._async_runner = BackgroundAsyncRunner()
         self.view = MainWindow(
             root=self,
             on_clear_cache=self.on_clear_cache,
@@ -75,6 +76,7 @@ class VirusProbeGUI(ttk.Window):
         self.presenter = AppPresenter(self.view)
 
         self.pending_entries: list[tuple[str, str, str]] = []
+        self.active_upload_entries: list[tuple[str, str, str]] = []
         self.cancel_event = threading.Event()
         self.is_scanning = False
         self.is_uploading = False
@@ -121,10 +123,21 @@ class VirusProbeGUI(ttk.Window):
         self._update_api_key_status()
 
     def on_clear_cache(self) -> None:
-        deleted = show_clear_cache_dialog(self, self.model.clear_cache)
-        if deleted is not None:
-            label = f"{deleted} entr{'y' if deleted == 1 else 'ies'}"
-            self.view.progress_var.set(f"Cache cleared ({label})")
+        if self.is_scanning or self.is_uploading:
+            return
+        result = Messagebox.yesno(
+            "Clear local SQLite cache now?",
+            title="Clear Cache",
+            parent=self,
+            buttons=["No:secondary", "Yes:primary"],
+            default="Yes",
+        )
+        if result != "Yes":
+            return
+
+        self.view.progress_var.set("Clearing cache...")
+        future = self._async_runner.submit(self.model.clear_cache_async())
+        future.add_done_callback(self._on_clear_cache_done)
 
     def on_add_files(self) -> None:
         for path in filedialog.askopenfilenames(parent=self, title="Select files to scan"):
@@ -202,6 +215,7 @@ class VirusProbeGUI(ttk.Window):
             self._request_cancel("Cancelling upload before close...")
             return
         self.model.close()
+        self._async_runner.close()
         self.destroy()
 
     def _start_scan(self) -> None:
@@ -228,64 +242,29 @@ class VirusProbeGUI(ttk.Window):
         self.is_scanning = True
         self.view.report_button.configure(state="disabled")
         self.view.progress_var.set("Scanning...")
-        threading.Thread(target=self._scan_worker, daemon=True).start()
+        future = self._async_runner.submit(self._run_scan_async())
+        future.add_done_callback(self._on_scan_done)
 
-    def _scan_worker(self) -> None:
-        try:
-            scanner = self.model.acquire_scanner(
-                requests_per_minute=self.current_rpm,
-                workers=self.current_workers,
-                upload_timeout=self.current_upload_timeout,
-                upload_undetected=(self.model.upload_mode == UPLOAD_AUTO),
-            )
+    async def _run_scan_async(self) -> Any:
+        def on_result(result: dict[str, Any], iid: str | None, completed: int, total: int) -> None:
+            if iid is not None:
+                self._safe_after(self.view.set_row_status, iid, self.model.result_status(result))
+            self.model.upsert_result(result)
+            self._safe_after(lambda: self.view.progress_var.set("Scanning..."))
+            self._safe_after(self.view.set_progress, completed, total)
 
-            def on_result(result: dict[str, Any], iid: str | None, completed: int, total: int) -> None:
-                if iid is not None:
-                    self._safe_after(self.view.set_row_status, iid, self.model.result_status(result))
-                self._safe_after(lambda: self.view.progress_var.set("Scanning..."))
-                self._safe_after(self.view.set_progress, completed, total)
-
-            run_result = run_scan_workflow(
-                scanner=scanner,
-                ordered_entries=self.pending_entries,
-                cancel_event=self.cancel_event,
-                on_result=on_result,
-            )
-
-            self.model.merge_results(run_result.results)
-            if self.model.has_results():
-                self._safe_after(lambda: self.view.report_button.configure(state="normal"))
-
-            if run_result.cancelled:
-                self._safe_after(
-                    self.view.mark_rows_status_if_current,
-                    run_result.entry_iids,
-                    "Scanning...",
-                    "Cancelled",
-                )
-                self._safe_after(
-                    lambda c=run_result.completed, t=run_result.total: self.view.progress_var.set(f"Scan cancelled ({c}/{t})")
-                )
-                self._safe_after(self.view.set_progress, run_result.completed, run_result.total)
-            else:
-                self._safe_after(lambda: self.view.progress_var.set("Scan complete"))
-                self._safe_after(self.view.set_progress, run_result.total, run_result.total)
-                self._safe_after(
-                    self._show_toast,
-                    "Scan Complete",
-                    f"Processed {run_result.total} item(s).",
-                    "success",
-                )
-        except Exception as exc:
-            self._safe_after(lambda err=str(exc): self._show_error("Scan Error", err))
-            self._safe_after(lambda: self.view.progress_var.set("Scan failed"))
-            if not self.is_closing:
-                self._safe_after(self._show_toast, "Scan Failed", str(exc), "danger", self._ERROR_TOAST_DURATION)
-        finally:
-            self.is_scanning = False
-            self._safe_after(self._restore_buttons)
-            if self.is_closing:
-                self._safe_after(self.destroy)
+        scanner = await self.model.acquire_scanner_async(
+            requests_per_minute=self.current_rpm,
+            workers=self.current_workers,
+            upload_timeout=self.current_upload_timeout,
+            upload_undetected=(self.model.upload_mode == UPLOAD_AUTO),
+        )
+        return await run_scan_workflow_async(
+            scanner=scanner,
+            ordered_entries=self.pending_entries,
+            cancel_event=self.cancel_event,
+            on_result=on_result,
+        )
 
     def _start_upload_selected(self) -> None:
         if self.is_scanning or self.is_uploading:
@@ -300,87 +279,156 @@ class VirusProbeGUI(ttk.Window):
             return
 
         entries = [(iid, fp, "") for iid, fp in file_entries]
+        self.active_upload_entries = entries
 
         self._set_entry_rows_status(entries, "Uploading...")
         self._begin_busy_state(self._cancel_upload)
         self.is_uploading = True
         self.view.set_progress(0, len(entries))
         self.view.progress_var.set("Uploading...")
-        threading.Thread(target=self._upload_worker, args=(entries,), daemon=True).start()
+        future = self._async_runner.submit(self._run_upload_async(entries))
+        future.add_done_callback(self._on_upload_done)
 
     def _cancel_upload(self) -> None:
         if not self.is_uploading:
             return
         self._request_cancel("Cancelling upload...")
 
-    def _upload_worker(self, entries: list[tuple[str, str, str]]) -> None:
+    async def _run_upload_async(self, entries: list[tuple[str, str, str]]) -> tuple[Any, int, int]:
+        current_rpm, current_workers, current_upload_timeout = self._current_limits()
+        total = len(entries)
+        completed_ref = [0]
+        error_count_ref = [0]
+
+        def on_result(result: dict[str, Any], iid: str | None) -> None:
+            completed_ref[0] += 1
+            c = completed_ref[0]
+            if result.get("status") == "error":
+                error_count_ref[0] += 1
+            if iid is not None:
+                self._safe_after(self.view.set_row_status, iid, self.model.result_status(result))
+            self.model.upsert_result(result)
+            self._safe_after(self.view.set_progress, c, total)
+            self._safe_after(lambda: self.view.progress_var.set("Uploading..."))
+
+        scanner = await self.model.acquire_scanner_async(
+            requests_per_minute=current_rpm,
+            workers=max(1, min(current_workers, len(entries))),
+            upload_timeout=current_upload_timeout,
+            upload_undetected=False,
+        )
+        run_result = await run_upload_workflow_async(
+            scanner=scanner,
+            entries=entries,
+            cancel_event=self.cancel_event,
+            on_result=on_result,
+        )
+        return run_result, total, error_count_ref[0]
+
+    def _on_clear_cache_done(self, future) -> None:
         try:
-            current_rpm, current_workers, current_upload_timeout = self._current_limits()
-            scanner = self.model.acquire_scanner(
-                requests_per_minute=current_rpm,
-                workers=max(1, min(current_workers, len(entries))),
-                upload_timeout=current_upload_timeout,
-                upload_undetected=False,
-            )
-
-            total = len(entries)
-            completed_ref = [0]
-            error_count_ref = [0]
-
-            def on_result(result: dict[str, Any], iid: str | None) -> None:
-                completed_ref[0] += 1
-                c = completed_ref[0]
-                if result.get("status") == "error":
-                    error_count_ref[0] += 1
-                if iid is not None:
-                    self._safe_after(self.view.set_row_status, iid, self.model.result_status(result))
-                self.model.upsert_result(result)
-                self._safe_after(self.view.set_progress, c, total)
-                self._safe_after(lambda: self.view.progress_var.set("Uploading..."))
-
-            run_result = run_upload_workflow(
-                scanner=scanner,
-                entries=entries,
-                cancel_event=self.cancel_event,
-                on_result=on_result,
-            )
-            if run_result.cancelled:
-                self._safe_after(
-                    self.view.mark_rows_status_if_current,
-                    run_result.entry_iids,
-                    "Uploading...",
-                    "Cancelled",
-                )
-                self._safe_after(lambda: self.view.progress_var.set("Upload cancelled"))
-            else:
-                progress_text, toast_title, toast_message, toast_style = upload_completion_feedback(total, error_count_ref[0])
-                self._safe_after(lambda text=progress_text: self.view.progress_var.set(text))
-                self._safe_after(
-                    self._show_toast,
-                    toast_title,
-                    toast_message,
-                    toast_style,
-                )
+            deleted = future.result()
         except Exception as exc:
-            self._safe_after(lambda err=str(exc): self._show_error("Upload Error", err))
-            self._safe_after(lambda: self.view.progress_var.set("Upload failed"))
-            self._safe_after(
-                self.view.mark_rows_status_if_current,
-                [iid for iid, _, _ in entries],
+            self._safe_after(lambda err=str(exc): self._show_error("Cache Error", err))
+            self._safe_after(lambda: self.view.progress_var.set("Cache clear failed"))
+            return
+        self._safe_after(self._finish_clear_cache, deleted)
+
+    def _finish_clear_cache(self, deleted: int) -> None:
+        label = f"{deleted} entr{'y' if deleted == 1 else 'ies'}"
+        Messagebox.show_info(f"Cleared SQLite cache ({label}).", title="Cache Cleared", parent=self)
+        self.view.progress_var.set(f"Cache cleared ({label})")
+
+    def _on_scan_done(self, future) -> None:
+        try:
+            run_result = future.result()
+        except Exception as exc:
+            self._safe_after(self._finish_scan, None, exc)
+            return
+        self._safe_after(self._finish_scan, run_result, None)
+
+    def _finish_scan(self, run_result: Any, exc: Exception | None) -> None:
+        try:
+            if exc is None:
+                self.model.merge_results(run_result.results)
+                if self.model.has_results():
+                    self.view.report_button.configure(state="normal")
+
+                if run_result.cancelled:
+                    self.view.mark_rows_status_if_current(run_result.entry_iids, "Scanning...", "Cancelled")
+                    self.view.progress_var.set(f"Scan cancelled ({run_result.completed}/{run_result.total})")
+                    self.view.set_progress(run_result.completed, run_result.total)
+                else:
+                    self.view.progress_var.set("Scan complete")
+                    self.view.set_progress(run_result.total, run_result.total)
+                    self._show_toast("Scan Complete", f"Processed {run_result.total} item(s).", "success")
+                return
+
+            if self.model.has_results():
+                self.view.report_button.configure(state="normal")
+            self._show_error("Scan Error", str(exc))
+            self.view.progress_var.set("Scan failed")
+            if not self.is_closing:
+                self._show_toast("Scan Failed", str(exc), "danger", self._ERROR_TOAST_DURATION)
+        finally:
+            self.is_scanning = False
+            self._restore_buttons()
+            if self.is_closing:
+                self.model.close()
+                self._async_runner.close()
+                self.destroy()
+
+    def _on_upload_done(self, future) -> None:
+        try:
+            run_result, total, error_count = future.result()
+        except Exception as exc:
+            self._safe_after(self._finish_upload, None, None, None, exc)
+            return
+        self._safe_after(self._finish_upload, run_result, total, error_count, None)
+
+    def _finish_upload(
+        self,
+        run_result: Any,
+        total: int | None,
+        error_count: int | None,
+        exc: Exception | None,
+    ) -> None:
+        try:
+            if exc is None:
+                assert total is not None
+                assert error_count is not None
+                if run_result.cancelled:
+                    self.view.mark_rows_status_if_current(run_result.entry_iids, "Uploading...", "Cancelled")
+                    self.view.progress_var.set("Upload cancelled")
+                else:
+                    progress_text, toast_title, toast_message, toast_style = upload_completion_feedback(
+                        total, error_count
+                    )
+                    self.view.progress_var.set(progress_text)
+                    self._show_toast(toast_title, toast_message, toast_style)
+                return
+
+            self._show_error("Upload Error", str(exc))
+            self.view.progress_var.set("Upload failed")
+            self.view.mark_rows_status_if_current(
+                [iid for iid, _, _ in self.active_upload_entries],
                 "Uploading...",
                 "Error",
             )
             if not self.is_closing:
-                self._safe_after(self._show_toast, "Upload Failed", str(exc), "danger", self._ERROR_TOAST_DURATION)
+                self._show_toast("Upload Failed", str(exc), "danger", self._ERROR_TOAST_DURATION)
         finally:
             self.is_uploading = False
-            self._safe_after(self._restore_buttons)
+            self.active_upload_entries = []
+            self._restore_buttons()
             if self.is_closing:
-                self._safe_after(self.destroy)
+                self.model.close()
+                self._async_runner.close()
+                self.destroy()
 
     def _add_item(self, item_type: str, value: str) -> bool:
         added = self.view.add_item(item_type, value)
-        if added:
+        if added and not (self.is_scanning or self.is_uploading):
             self._set_queued_count_text()
         return added
 

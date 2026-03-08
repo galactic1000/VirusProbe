@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import sys
 
 import pytest
@@ -22,13 +23,17 @@ class FakeService:
         type(self).clear_cache_called += 1
         return 3
 
-    def scan_directory(self, *args, **kwargs):
+    @asynccontextmanager
+    async def async_session(self):
+        yield self
+
+    async def scan_directory(self, *args, **kwargs):
         return []
 
-    def scan_files(self, *args, **kwargs):
+    async def scan_files(self, *args, **kwargs):
         return []
 
-    def scan_hashes(self, *args, **kwargs):
+    async def scan_hashes(self, *args, **kwargs):
         return []
 
     def close(self) -> None:
@@ -41,7 +46,6 @@ def _run_main(monkeypatch, argv: list[str]) -> None:
 
 
 def _make_capture_service(*keys: str) -> tuple[type, dict]:
-    """Return a FakeService subclass that captures named __init__ kwargs."""
     captured: dict = {k: None for k in keys}
 
     class _CaptureService(FakeService):
@@ -51,11 +55,6 @@ def _make_capture_service(*keys: str) -> tuple[type, dict]:
                 captured[k] = kwargs.get(k)
 
     return _CaptureService, captured
-
-
-# ---------------------------------------------------------------------------
-# Parser
-# ---------------------------------------------------------------------------
 
 
 def test_h_flag_shows_help() -> None:
@@ -98,11 +97,6 @@ def test_upload_timeout_parsing() -> None:
     assert args.upload_timeout == 30
 
 
-# ---------------------------------------------------------------------------
-# Display
-# ---------------------------------------------------------------------------
-
-
 def test_print_scan_summary_counts_suspicious_detections(capsys) -> None:
     print_scan_summary(
         [
@@ -120,15 +114,9 @@ def test_print_scan_summary_counts_suspicious_detections(capsys) -> None:
             }
         ]
     )
-
     output = capsys.readouterr().out
     assert "SUSPICIOUS ITEMS" in output
     assert "(3 detections)" in output
-
-
-# ---------------------------------------------------------------------------
-# Behavior
-# ---------------------------------------------------------------------------
 
 
 def test_main_errors_when_recursive_without_directory(monkeypatch) -> None:
@@ -181,7 +169,6 @@ def test_clear_cache_action_only(monkeypatch) -> None:
 
 def test_invalid_recursive_input_does_not_run_admin_actions(monkeypatch) -> None:
     calls: dict[str, str | None] = {"saved": None}
-
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
     monkeypatch.setattr(cli_app, "save_api_key_to_env", lambda value: calls.__setitem__("saved", value))
 
@@ -242,8 +229,12 @@ def test_upload_filter_absolute_path_glob_matches_absolute_path(tmp_path) -> Non
 
 def test_main_exits_1_when_error_results(monkeypatch) -> None:
     class ErrorService(FakeService):
-        def scan_hashes(self, *args, **kwargs):
-            return [{"threat_level": "Error", "status": "error", "message": "API failure"}]
+        async def scan_hashes(self, *args, **kwargs):
+            result = {"threat_level": "Error", "status": "error", "message": "API failure"}
+            on_result = kwargs.get("on_result")
+            if on_result is not None:
+                on_result(result)
+            return [result]
 
     monkeypatch.setattr(cli_app, "ScannerService", ErrorService)
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
@@ -258,8 +249,12 @@ def test_main_exits_1_when_error_results(monkeypatch) -> None:
 
 def test_main_exits_0_when_malicious_results(monkeypatch) -> None:
     class MaliciousService(FakeService):
-        def scan_hashes(self, *args, **kwargs):
-            return [{"threat_level": "Malicious", "status": "ok"}]
+        async def scan_hashes(self, *args, **kwargs):
+            result = {"threat_level": "Malicious", "status": "ok"}
+            on_result = kwargs.get("on_result")
+            if on_result is not None:
+                on_result(result)
+            return [result]
 
     monkeypatch.setattr(cli_app, "ScannerService", MaliciousService)
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
@@ -267,7 +262,7 @@ def test_main_exits_0_when_malicious_results(monkeypatch) -> None:
     monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
     monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
 
-    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])  # should not raise
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
 
 
 def test_output_toggle_auto_generates_report_name(monkeypatch) -> None:
@@ -277,14 +272,14 @@ def test_output_toggle_auto_generates_report_name(monkeypatch) -> None:
             class _Now:
                 @staticmethod
                 def strftime(fmt: str) -> str:
-                    return '20260225_120000'
+                    return "20260225_120000"
             return _Now()
 
-    monkeypatch.setattr(cli_app, 'datetime', FakeDateTime)
-    monkeypatch.setattr(cli_app, 'get_api_key', lambda: 'k')
-    monkeypatch.setattr(cli_app, 'ScannerService', FakeService)
+    monkeypatch.setattr(cli_app, "datetime", FakeDateTime)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
 
-    _run_main(monkeypatch, ['cli.py', '-s', 'a' * 64, '-o', '--format', 'md'])
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "-o", "--format", "md"])
 
 
 @pytest.mark.parametrize("env_timeout", [30, 0])

@@ -2,93 +2,78 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
-from collections.abc import Callable, Iterable
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from collections.abc import Awaitable, Callable, Iterable
 from pathlib import Path
 from typing import Any
 
 
-def scan_many(
-    max_workers: int,
-    scan_func: Callable[[str], dict[str, Any]],
-    items: Iterable[str],
+async def scan_many_async(
+    semaphore: asyncio.Semaphore,
+    scan_func: Callable[[Any], Awaitable[dict[str, Any]]],
+    items: Iterable[Any],
     on_result: Callable[[dict[str, Any]], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> list[dict[str, Any]]:
     if cancel_event is not None and cancel_event.is_set():
         return []
-    item_iter = iter(items)
-    results: list[dict[str, Any] | None] = []
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_idx: dict[Any, int] = {}
-        next_idx = 0
 
-        def _submit_next() -> bool:
-            nonlocal next_idx
-            try:
-                item = next(item_iter)
-            except StopIteration:
-                return False
-            future = executor.submit(scan_func, item)
-            future_to_idx[future] = next_idx
-            results.append(None)
-            next_idx += 1
-            return True
+    item_list = list(items)
+    if not item_list:
+        return []
 
-        while len(future_to_idx) < max_workers and _submit_next():
-            pass
-        if not future_to_idx:
-            return []
+    results: list[dict[str, Any] | None] = [None] * len(item_list)
 
-        while future_to_idx:
-            done, _ = wait(tuple(future_to_idx.keys()), return_when=FIRST_COMPLETED)
-            for future in done:
-                idx = future_to_idx.pop(future)
-                result = future.result()
-                results[idx] = result
-                if on_result is not None:
-                    on_result(result)
+    async def _run_one(idx: int, item: Any) -> None:
+        async with semaphore:
             if cancel_event is not None and cancel_event.is_set():
-                for future in list(future_to_idx):
-                    future.cancel()
+                return
+            result = await scan_func(item)
+            results[idx] = result
+            if on_result is not None:
+                on_result(result)
+
+    async with asyncio.TaskGroup() as tg:
+        for idx, item in enumerate(item_list):
+            if cancel_event is not None and cancel_event.is_set():
                 break
-            while len(future_to_idx) < max_workers and _submit_next():
-                pass
-    return [result for result in results if result is not None]
+            tg.create_task(_run_one(idx, item))
+
+    return [r for r in results if r is not None]
 
 
-def scan_files(
-    max_workers: int,
-    scan_file: Callable[[str, threading.Event | None], dict[str, Any]],
+async def scan_files_async(
+    semaphore: asyncio.Semaphore,
+    scan_file: Callable[[str, threading.Event | None], Awaitable[dict[str, Any]]],
     file_paths: Iterable[str],
     on_result: Callable[[dict[str, Any]], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> list[dict[str, Any]]:
-    def _scan_one(file_path: str) -> dict[str, Any]:
-        return scan_file(file_path, cancel_event)
+    async def _scan_one(file_path: str) -> dict[str, Any]:
+        return await scan_file(file_path, cancel_event)
 
-    return scan_many(max_workers, _scan_one, file_paths, on_result=on_result, cancel_event=cancel_event)
+    return await scan_many_async(semaphore, _scan_one, file_paths, on_result=on_result, cancel_event=cancel_event)
 
 
-def scan_hashes(
-    max_workers: int,
-    scan_hash: Callable[[str, threading.Event | None], dict[str, Any]],
+async def scan_hashes_async(
+    semaphore: asyncio.Semaphore,
+    scan_hash: Callable[[str, threading.Event | None], Awaitable[dict[str, Any]]],
     hashes: Iterable[str],
     on_result: Callable[[dict[str, Any]], None] | None = None,
     cancel_event: threading.Event | None = None,
 ) -> list[dict[str, Any]]:
-    def _scan_one(hash_value: str) -> dict[str, Any]:
-        return scan_hash(hash_value, cancel_event)
+    async def _scan_one(hash_value: str) -> dict[str, Any]:
+        return await scan_hash(hash_value, cancel_event)
 
-    return scan_many(max_workers, _scan_one, hashes, on_result=on_result, cancel_event=cancel_event)
+    return await scan_many_async(semaphore, _scan_one, hashes, on_result=on_result, cancel_event=cancel_event)
 
 
-def scan_directory(
+async def scan_directory_async(
     directory: str,
-    scan_files: Callable[
+    scan_files_fn: Callable[
         [Iterable[str], Callable[[dict[str, Any]], None] | None, threading.Event | None],
-        list[dict[str, Any]],
+        Awaitable[list[dict[str, Any]]],
     ],
     error_result: Callable[[str, str, str], dict[str, Any]],
     recursive: bool = False,
@@ -107,4 +92,4 @@ def scan_directory(
             on_result(result)
         return [result]
     files = (str(f) for f in (path.rglob("*") if recursive else path.iterdir()) if f.is_file())
-    return scan_files(files, on_result, cancel_event)
+    return await scan_files_fn(files, on_result, cancel_event)

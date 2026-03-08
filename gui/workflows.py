@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from threading import Event
 from typing import Any, Callable
@@ -18,7 +19,7 @@ class ScanWorkflowResult:
     entry_iids: list[str]
 
 
-def run_scan_workflow(
+async def run_scan_workflow_async(
     scanner: ScannerService,
     ordered_entries: list[tuple[str, str, str]],
     cancel_event: Event,
@@ -49,10 +50,12 @@ def run_scan_workflow(
         completed += 1
         on_result(result, iid, completed, total)
 
-    if file_values and not cancel_event.is_set():
-        scanner.scan_files(file_values, on_result=_on_result, cancel_event=cancel_event)
-    if hash_values and not cancel_event.is_set():
-        scanner.scan_hashes(hash_values, on_result=_on_result, cancel_event=cancel_event)
+    async with scanner.async_session():
+        async with asyncio.TaskGroup() as tg:
+            if file_values and not cancel_event.is_set():
+                tg.create_task(scanner.scan_files(file_values, on_result=_on_result, cancel_event=cancel_event))
+            if hash_values and not cancel_event.is_set():
+                tg.create_task(scanner.scan_hashes(hash_values, on_result=_on_result, cancel_event=cancel_event))
 
     return ScanWorkflowResult(
         results=new_results,
@@ -86,7 +89,7 @@ def upload_completion_feedback(total: int, error_count: int) -> tuple[str, str, 
     )
 
 
-def run_upload_workflow(
+async def run_upload_workflow_async(
     scanner: ScannerService,
     entries: list[tuple[str, str, str]],
     cancel_event: Event,
@@ -104,5 +107,6 @@ def run_upload_workflow(
         iid = entry_by_file.get(file_path)
         on_result(result, iid)
 
-    scanner.upload_files_direct(upload_entries, on_result=_on_result, cancel_event=cancel_event)
+    async with scanner.async_session():
+        await scanner.upload_files_direct(upload_entries, on_result=_on_result, cancel_event=cancel_event)
     return UploadWorkflowResult(cancelled=cancel_event.is_set(), entry_iids=[iid for iid, _, _ in entries])

@@ -2,27 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import threading
 from collections.abc import Callable, Iterable
-from contextlib import suppress
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 import vt
 
+from .api_errors import BATCH_FATAL_API_ERROR_CODES
 from .cache import ScanCache
-from .rate_limit import RateLimiter
+from .defaults import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
+from .rate_limit import AsyncRateLimiter
 from . import service_scan
 from . import service_upload
-
-DEFAULT_SCAN_WORKERS = 4
-DEFAULT_REQUESTS_PER_MINUTE = 4
-DEFAULT_UPLOAD_TIMEOUT_MINUTES = service_upload.DEFAULT_UPLOAD_TIMEOUT_MINUTES
 
 
 class _HashCancelled(Exception):
     """Raised internally when file hashing is interrupted by cancel_event."""
+
+
+def _is_batch_fatal_api_error(exc: vt.APIError) -> bool:
+    return exc.code in BATCH_FATAL_API_ERROR_CODES
 
 
 class ScannerService:
@@ -58,40 +63,66 @@ class ScannerService:
             cache_max_rows=cache_max_rows,
             memory_cache_max_entries=memory_cache_max_entries,
         )
-        self._rate_limiter = RateLimiter(max_calls=max(0, int(requests_per_minute)))
-        self._client_local = threading.local()
-        self._clients: list[vt.Client] = []
-        self._clients_lock = threading.Lock()
+        self._cache_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="virusprobe-cache")
+        self._hash_executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="virusprobe-hash")
+        self._cache_available = True
         self._requests_per_minute = max(0, int(requests_per_minute))
         self._upload_timeout_minutes = max(0, int(upload_timeout_minutes))
-        self._closed = False
+        self._session_client: vt.Client | None = None
+        self._session_rate_limiter: AsyncRateLimiter | None = None
+        self._session_semaphore: asyncio.Semaphore | None = None
 
     def init_cache(self) -> None:
-        self._cache.init()
+        try:
+            self._cache.init()
+            self._cache_available = True
+        except Exception:
+            self._cache_available = False
+            with contextlib.suppress(Exception):
+                self._cache.close()
+
+    async def init_cache_async(self) -> None:
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(self._cache_executor, self._cache.init)
+            self._cache_available = True
+        except Exception:
+            self._cache_available = False
+            with contextlib.suppress(Exception):
+                self._cache.close()
 
     def clear_cache(self) -> int:
+        if not self._cache_available:
+            return 0
         return self._cache.clear()
 
-    def close(self) -> None:
-        self._cache.close()
-        with self._clients_lock:
-            self._closed = True
-            clients = self._clients
-            self._clients = []
-        for client in clients:
-            with suppress(Exception):
-                client.close()
+    async def clear_cache_async(self) -> int:
+        if not self._cache_available:
+            return 0
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._cache_executor, self._cache.clear)
 
-    def _get_client(self) -> vt.Client:
-        if self._closed:
-            raise RuntimeError("ScannerService has been closed")
-        client = getattr(self._client_local, "client", None)
-        if client is None:
-            client = vt.Client(self.api_key)
-            self._client_local.client = client
-            with self._clients_lock:
-                self._clients.append(client)
-        return client
+    def close(self) -> None:
+        try:
+            self._cache_executor.shutdown(wait=True)
+            self._hash_executor.shutdown(wait=True)
+        finally:
+            self._cache.close()
+
+    async def _cache_get_async(self, file_hash: str) -> tuple[int, int, int, int] | None:
+        if not self._cache_available:
+            return None
+        cached = self._cache.peek_memory(file_hash)
+        if cached is not None:
+            return cached
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._cache_executor, self._cache.get, file_hash)
+
+    async def _cache_save_async(self, file_hash: str, stats: tuple[int, int, int, int]) -> None:
+        if not self._cache_available:
+            return
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(self._cache_executor, self._cache.save, file_hash, stats)
 
     @staticmethod
     def hash_file(file_path: str, cancel_event: threading.Event | None = None) -> str:
@@ -102,6 +133,10 @@ class ScannerService:
                     raise _HashCancelled()
                 hasher.update(chunk)
         return hasher.hexdigest()
+
+    async def hash_file_async(self, file_path: str, cancel_event: threading.Event | None = None) -> str:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(self._hash_executor, ScannerService.hash_file, file_path, cancel_event)
 
     @staticmethod
     def _hash_item(value: object) -> str:
@@ -162,93 +197,6 @@ class ScannerService:
             "was_uploaded": False,
         }
 
-    def scan_file(self, file_path: str, cancel_event: threading.Event | None = None) -> dict[str, Any]:
-        if cancel_event is not None and cancel_event.is_set():
-            return self._cancelled_result(file_path, "file")
-        path = Path(file_path)
-        if not path.exists():
-            return self._error_result(file_path, "file", f"File '{file_path}' does not exist")
-        if not path.is_file():
-            return self._error_result(file_path, "file", f"'{file_path}' is not a file")
-        return self._scan_file_verified(file_path, cancel_event=cancel_event)
-
-    def _scan_file_verified(self, file_path: str, cancel_event: threading.Event | None = None) -> dict[str, Any]:
-        try:
-            file_hash = self.hash_file(file_path, cancel_event)
-        except _HashCancelled:
-            return self._cancelled_result(file_path, "file")
-        except OSError as exc:
-            return self._error_result(file_path, "file", str(exc))
-
-        try:
-            (malicious, suspicious, harmless, undetected), was_cached = self._query_virustotal(file_hash)
-        except vt.APIError as exc:
-            if exc.code == "NotFoundError" and self.upload_undetected and (self.upload_filter is None or self.upload_filter(file_path)):
-                return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
-            if exc.code == "NotFoundError":
-                result = self._not_found_result(file_hash)
-                result.update({"item": file_path, "type": "file"})
-                return result
-            return self._error_result(file_path, "file", str(exc), file_hash)
-        except ValueError as exc:
-            result = self._error_result(file_path, "file", f"Unexpected VT response: {exc}", file_hash)
-            return result
-        except Exception as exc:
-            result = self._hash_error(file_hash, str(exc), file_hash)
-            result.update({"item": file_path, "type": "file"})
-            return result
-
-        return {
-            "item": file_path,
-            "type": "file",
-            "file_hash": file_hash,
-            "malicious": malicious,
-            "suspicious": suspicious,
-            "harmless": harmless,
-            "undetected": undetected,
-            "threat_level": self.classify_threat(malicious, suspicious),
-            "status": "ok",
-            "message": "Using cached result" if was_cached else "Queried VirusTotal API",
-            "was_cached": was_cached,
-            "was_uploaded": False,
-        }
-
-    def scan_hash(self, file_hash: str, cancel_event: threading.Event | None = None) -> dict[str, Any]:
-        if cancel_event is not None and cancel_event.is_set():
-            return self._cancelled_result(str(file_hash), "hash")
-        if not isinstance(file_hash, str):
-            return self._hash_error(file_hash, "Invalid SHA-256 hash format")
-        normalized_input = file_hash.strip()
-        if not self.is_sha256(normalized_input):
-            return self._hash_error(normalized_input, "Invalid SHA-256 hash format", normalized_input.lower())
-
-        normalized_hash = normalized_input.lower()
-        try:
-            (malicious, suspicious, harmless, undetected), was_cached = self._query_virustotal(normalized_hash)
-        except vt.APIError as exc:
-            if exc.code == "NotFoundError":
-                return self._not_found_result(normalized_hash)
-            return self._hash_error(normalized_hash, str(exc), normalized_hash)
-        except ValueError:
-            return self._not_found_result(normalized_hash)
-        except Exception as exc:
-            return self._hash_error(normalized_hash, str(exc), normalized_hash)
-
-        return {
-            "item": self._hash_item(normalized_hash),
-            "type": "hash",
-            "file_hash": normalized_hash,
-            "malicious": malicious,
-            "suspicious": suspicious,
-            "harmless": harmless,
-            "undetected": undetected,
-            "threat_level": self.classify_threat(malicious, suspicious),
-            "status": "ok",
-            "message": "Using cached result" if was_cached else "Queried VirusTotal API",
-            "was_cached": was_cached,
-            "was_uploaded": False,
-        }
-
     @staticmethod
     def is_sha256(value: str) -> bool:
         return len(value) == 64 and all(c in ScannerService._HEX_CHARS for c in value)
@@ -275,42 +223,121 @@ class ScannerService:
             int(stats["undetected"]),
         )
 
-    def _query_virustotal(self, file_hash: str) -> tuple[tuple[int, int, int, int], bool]:
-        cached = self._cache.get(file_hash)
+    def _stats_result(
+        self,
+        *,
+        item: str,
+        item_type: str,
+        file_hash: str,
+        stats: tuple[int, int, int, int],
+        was_cached: bool,
+    ) -> dict[str, Any]:
+        malicious, suspicious, harmless, undetected = stats
+        return {
+            "item": item,
+            "type": item_type,
+            "file_hash": file_hash,
+            "malicious": malicious,
+            "suspicious": suspicious,
+            "harmless": harmless,
+            "undetected": undetected,
+            "threat_level": self.classify_threat(malicious, suspicious),
+            "status": "ok",
+            "message": "Using cached result" if was_cached else "Queried VirusTotal API",
+            "was_cached": was_cached,
+            "was_uploaded": False,
+        }
+
+    async def _cached_result_async(self, *, item: str, item_type: str, file_hash: str) -> dict[str, Any] | None:
+        cached = await self._cache_get_async(file_hash)
+        if cached is None:
+            return None
+        if item_type == "hash":
+            item = self._hash_item(file_hash)
+        return self._stats_result(
+            item=item,
+            item_type=item_type,
+            file_hash=file_hash,
+            stats=cached,
+            was_cached=True,
+        )
+
+    async def _prepare_file_scan_async(
+        self,
+        file_path: str,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[dict[str, Any] | None, tuple[str, str] | None]:
+        if cancel_event is not None and cancel_event.is_set():
+            return self._cancelled_result(file_path, "file"), None
+        path = Path(file_path)
+        if not path.exists():
+            return self._error_result(file_path, "file", f"File '{file_path}' does not exist"), None
+        if not path.is_file():
+            return self._error_result(file_path, "file", f"'{file_path}' is not a file"), None
+        try:
+            file_hash = await self.hash_file_async(file_path, cancel_event)
+        except _HashCancelled:
+            return self._cancelled_result(file_path, "file"), None
+        except OSError as exc:
+            return self._error_result(file_path, "file", str(exc)), None
+        cached = await self._cached_result_async(item=file_path, item_type="file", file_hash=file_hash)
         if cached is not None:
-            return cached, True
-        self._rate_limiter.acquire()
-        client = self._get_client()
-        response_json = client.get(f"/files/{file_hash}").json()
+            return cached, None
+        return None, (file_path, file_hash)
+
+    async def _prepare_hash_scan_async(
+        self,
+        file_hash: str,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        if cancel_event is not None and cancel_event.is_set():
+            return self._cancelled_result(str(file_hash), "hash"), None
+        if not isinstance(file_hash, str):
+            return self._hash_error(file_hash, "Invalid SHA-256 hash format"), None
+        normalized_input = file_hash.strip()
+        if not self.is_sha256(normalized_input):
+            return self._hash_error(normalized_input, "Invalid SHA-256 hash format", normalized_input.lower()), None
+        normalized_hash = normalized_input.lower()
+        cached = await self._cached_result_async(item=normalized_hash, item_type="hash", file_hash=normalized_hash)
+        if cached is not None:
+            return cached, None
+        return None, normalized_hash
+
+    async def _query_virustotal_async(
+        self,
+        client: vt.Client,
+        rate_limiter: AsyncRateLimiter,
+        file_hash: str,
+        *,
+        check_cache: bool = True,
+    ) -> tuple[tuple[int, int, int, int], bool]:
+        if check_cache:
+            cached = await self._cache_get_async(file_hash)
+            if cached is not None:
+                return cached, True
+        await rate_limiter.acquire()
+        response_json = await client.get_json_async(f"/files/{file_hash}")
         stats = self._extract_stats(response_json)
         try:
-            self._cache.save(file_hash, stats)
+            await self._cache_save_async(file_hash, stats)
         except Exception:
             pass
         return stats, False
 
-    def _upload_file(self, file_path: str) -> str:
-        return service_upload.upload_file(
-            get_client=self._get_client,
-            rate_limit_acquire=self._rate_limiter.acquire,
-            file_path=file_path,
-        )
-
-    def _poll_analysis(self, analysis_id: str, cancel_event: threading.Event | None = None) -> tuple[int, int, int, int]:
-        return service_upload.poll_analysis(
-            get_client=self._get_client,
-            rate_limit_acquire=self._rate_limiter.acquire,
-            requests_per_minute=self._requests_per_minute,
-            timeout_minutes=self._upload_timeout_minutes,
-            analysis_id=analysis_id,
-            cancel_event=cancel_event,
-        )
-
-    def _upload_and_scan(self, file_path: str, file_hash: str, cancel_event: threading.Event | None = None) -> dict[str, Any]:
-        return service_upload.upload_and_scan(
-            upload_file_fn=self._upload_file,
-            poll_analysis_fn=self._poll_analysis,
-            cache_save=self._cache.save,
+    async def _upload_and_scan_async(
+        self,
+        client: vt.Client,
+        rate_limiter: AsyncRateLimiter,
+        file_path: str,
+        file_hash: str,
+        cancel_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
+        return await service_upload.upload_and_scan_async(
+            upload_file_fn=lambda fp: service_upload.upload_file_async(client, rate_limiter, fp),
+            poll_analysis_fn=lambda aid, ce: service_upload.poll_analysis_async(
+                client, rate_limiter, self._requests_per_minute, self._upload_timeout_minutes, aid, ce
+            ),
+            cache_save=self._cache_save_async,
             classify_threat=self.classify_threat,
             error_result=self._error_result,
             cancelled_result=self._cancelled_result,
@@ -319,13 +346,91 @@ class ScannerService:
             cancel_event=cancel_event,
         )
 
-    def upload_file_direct(
+    async def _scan_file_async(
         self,
+        client: vt.Client,
+        rate_limiter: AsyncRateLimiter,
+        file_path: str,
+        cancel_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
+        prepared, pending = await self._prepare_file_scan_async(file_path, cancel_event)
+        if prepared is not None:
+            return prepared
+        assert pending is not None
+        file_path, file_hash = pending
+        try:
+            (malicious, suspicious, harmless, undetected), was_cached = await self._query_virustotal_async(
+                client, rate_limiter, file_hash
+            )
+        except vt.APIError as exc:
+            if _is_batch_fatal_api_error(exc):
+                raise
+            if exc.code == "NotFoundError" and self.upload_undetected and (
+                self.upload_filter is None or self.upload_filter(file_path)
+            ):
+                return await self._upload_and_scan_async(client, rate_limiter, file_path, file_hash, cancel_event)
+            if exc.code == "NotFoundError":
+                result = self._not_found_result(file_hash)
+                result.update({"item": file_path, "type": "file"})
+                return result
+            return self._error_result(file_path, "file", str(exc), file_hash)
+        except ValueError as exc:
+            return self._error_result(file_path, "file", f"Unexpected VT response: {exc}", file_hash)
+        except Exception as exc:
+            result = self._hash_error(file_hash, str(exc), file_hash)
+            result.update({"item": file_path, "type": "file"})
+            return result
+
+        return self._stats_result(
+            item=file_path,
+            item_type="file",
+            file_hash=file_hash,
+            stats=(malicious, suspicious, harmless, undetected),
+            was_cached=was_cached,
+        )
+
+    async def _scan_hash_async(
+        self,
+        client: vt.Client,
+        rate_limiter: AsyncRateLimiter,
+        file_hash: str,
+        cancel_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
+        prepared, normalized_hash = await self._prepare_hash_scan_async(file_hash, cancel_event)
+        if prepared is not None:
+            return prepared
+        assert normalized_hash is not None
+        try:
+            (malicious, suspicious, harmless, undetected), was_cached = await self._query_virustotal_async(
+                client, rate_limiter, normalized_hash
+            )
+        except vt.APIError as exc:
+            if _is_batch_fatal_api_error(exc):
+                raise
+            if exc.code == "NotFoundError":
+                return self._not_found_result(normalized_hash)
+            return self._hash_error(normalized_hash, str(exc), normalized_hash)
+        except ValueError:
+            return self._not_found_result(normalized_hash)
+        except Exception as exc:
+            return self._hash_error(normalized_hash, str(exc), normalized_hash)
+
+        return self._stats_result(
+            item=self._hash_item(normalized_hash),
+            item_type="hash",
+            file_hash=normalized_hash,
+            stats=(malicious, suspicious, harmless, undetected),
+            was_cached=was_cached,
+        )
+
+    async def _upload_file_direct_async(
+        self,
+        client: vt.Client,
+        rate_limiter: AsyncRateLimiter,
         file_path: str,
         file_hash: str,
         cancel_event: threading.Event | None = None,
     ) -> dict[str, Any]:
-        """Upload a file directly, skipping the VirusTotal hash lookup."""
         if cancel_event is not None and cancel_event.is_set():
             return self._cancelled_result(file_path, "file", file_hash)
         path = Path(file_path)
@@ -335,74 +440,399 @@ class ScannerService:
             return self._error_result(file_path, "file", f"Not a file: {file_path}", file_hash)
         if not file_hash:
             try:
-                file_hash = self.hash_file(file_path, cancel_event)
+                file_hash = await self.hash_file_async(file_path, cancel_event)
             except _HashCancelled:
                 return self._cancelled_result(file_path, "file")
             except OSError as exc:
                 return self._error_result(file_path, "file", str(exc))
-        return self._upload_and_scan(file_path, file_hash, cancel_event=cancel_event)
+        return await self._upload_and_scan_async(client, rate_limiter, file_path, file_hash, cancel_event)
 
-    def upload_files_direct(
+    async def _scan_file_live_async(
         self,
-        entries: list[tuple[str, str]],
-        on_result: Callable[[dict[str, Any]], None] | None = None,
+        client: vt.Client,
+        rate_limiter: AsyncRateLimiter,
+        file_path: str,
+        file_hash: str,
         cancel_event: threading.Event | None = None,
-    ) -> list[dict[str, Any]]:
-        """Upload files directly using known hashes, skipping the VirusTotal hash lookup."""
-        hash_by_path = {file_path: file_hash for file_path, file_hash in entries}
+    ) -> dict[str, Any]:
+        try:
+            (malicious, suspicious, harmless, undetected), was_cached = await self._query_virustotal_async(
+                client, rate_limiter, file_hash, check_cache=False
+            )
+        except vt.APIError as exc:
+            if _is_batch_fatal_api_error(exc):
+                raise
+            if exc.code == "NotFoundError" and self.upload_undetected and (
+                self.upload_filter is None or self.upload_filter(file_path)
+            ):
+                return await self._upload_and_scan_async(client, rate_limiter, file_path, file_hash, cancel_event)
+            if exc.code == "NotFoundError":
+                result = self._not_found_result(file_hash)
+                result.update({"item": file_path, "type": "file"})
+                return result
+            return self._error_result(file_path, "file", str(exc), file_hash)
+        except ValueError as exc:
+            return self._error_result(file_path, "file", f"Unexpected VT response: {exc}", file_hash)
+        except Exception as exc:
+            result = self._hash_error(file_hash, str(exc), file_hash)
+            result.update({"item": file_path, "type": "file"})
+            return result
 
-        def _upload_one(file_path: str) -> dict[str, Any]:
-            return self.upload_file_direct(file_path, hash_by_path[file_path], cancel_event=cancel_event)
-
-        return service_scan.scan_many(
-            self.max_workers,
-            _upload_one,
-            [fp for fp, _ in entries],
-            on_result=on_result,
-            cancel_event=cancel_event,
+        return self._stats_result(
+            item=file_path,
+            item_type="file",
+            file_hash=file_hash,
+            stats=(malicious, suspicious, harmless, undetected),
+            was_cached=was_cached,
         )
 
-    def scan_files(
+    async def _scan_hash_live_async(
+        self,
+        client: vt.Client,
+        rate_limiter: AsyncRateLimiter,
+        normalized_hash: str,
+    ) -> dict[str, Any]:
+        try:
+            (malicious, suspicious, harmless, undetected), was_cached = await self._query_virustotal_async(
+                client, rate_limiter, normalized_hash, check_cache=False
+            )
+        except vt.APIError as exc:
+            if _is_batch_fatal_api_error(exc):
+                raise
+            if exc.code == "NotFoundError":
+                return self._not_found_result(normalized_hash)
+            return self._hash_error(normalized_hash, str(exc), normalized_hash)
+        except ValueError:
+            return self._not_found_result(normalized_hash)
+        except Exception as exc:
+            return self._hash_error(normalized_hash, str(exc), normalized_hash)
+
+        return self._stats_result(
+            item=self._hash_item(normalized_hash),
+            item_type="hash",
+            file_hash=normalized_hash,
+            stats=(malicious, suspicious, harmless, undetected),
+            was_cached=was_cached,
+        )
+
+    async def _scan_files_small_batch_async(
+        self,
+        client: vt.Client,
+        rate_limiter: AsyncRateLimiter,
+        file_list: list[str],
+        on_result: Callable[[dict[str, Any]], None] | None,
+        cancel_event: threading.Event | None,
+    ) -> list[dict[str, Any]]:
+        results: list[dict[str, Any] | None] = [None] * len(file_list)
+
+        async def _run_one(idx: int, file_path: str) -> None:
+            if cancel_event is not None and cancel_event.is_set():
+                return
+            immediate, unresolved = await self._prepare_file_scan_async(file_path, cancel_event)
+            if immediate is not None:
+                result = immediate
+            elif unresolved is None:
+                return
+            else:
+                unresolved_path, file_hash = unresolved
+                result = await self._scan_file_live_async(client, rate_limiter, unresolved_path, file_hash, cancel_event)
+            results[idx] = result
+            if on_result is not None:
+                on_result(result)
+
+        async with asyncio.TaskGroup() as tg:
+            for idx, file_path in enumerate(file_list):
+                tg.create_task(_run_one(idx, file_path))
+
+        return [result for result in results if result is not None]
+
+    async def _scan_hashes_small_batch_async(
+        self,
+        client: vt.Client,
+        rate_limiter: AsyncRateLimiter,
+        hash_list: list[str],
+        on_result: Callable[[dict[str, Any]], None] | None,
+        cancel_event: threading.Event | None,
+    ) -> list[dict[str, Any]]:
+        results: list[dict[str, Any] | None] = [None] * len(hash_list)
+
+        async def _run_one(idx: int, raw_hash: str) -> None:
+            if cancel_event is not None and cancel_event.is_set():
+                return
+            immediate, unresolved = await self._prepare_hash_scan_async(raw_hash, cancel_event)
+            if immediate is not None:
+                result = immediate
+            elif unresolved is None:
+                return
+            else:
+                result = await self._scan_hash_live_async(client, rate_limiter, unresolved)
+            results[idx] = result
+            if on_result is not None:
+                on_result(result)
+
+        async with asyncio.TaskGroup() as tg:
+            for idx, raw_hash in enumerate(hash_list):
+                tg.create_task(_run_one(idx, raw_hash))
+
+        return [result for result in results if result is not None]
+
+    @asynccontextmanager
+    async def _client_context(self):
+        if self._session_client is not None:
+            assert self._session_rate_limiter is not None
+            assert self._session_semaphore is not None
+            yield self._session_client, self._session_rate_limiter, self._session_semaphore
+        else:
+            rate_limiter = AsyncRateLimiter(self._requests_per_minute)
+            semaphore = asyncio.Semaphore(self.max_workers)
+            async with vt.Client(self.api_key) as client:
+                yield client, rate_limiter, semaphore
+
+    @asynccontextmanager
+    async def async_session(self):
+        """Open a single shared vt.Client for the duration of the block.
+
+        Use this to avoid opening a new connection for each scan_files /
+        scan_hashes / scan_directory / upload_files_direct call:
+
+            async with scanner.async_session():
+                await scanner.scan_files(...)
+                await scanner.scan_hashes(...)
+        """
+        rate_limiter = AsyncRateLimiter(self._requests_per_minute)
+        semaphore = asyncio.Semaphore(self.max_workers)
+        async with vt.Client(self.api_key) as client:
+            self._session_client = client
+            self._session_rate_limiter = rate_limiter
+            self._session_semaphore = semaphore
+            try:
+                yield self
+            finally:
+                self._session_client = None
+                self._session_rate_limiter = None
+                self._session_semaphore = None
+
+    async def scan_files(
         self,
         file_paths: Iterable[str],
         on_result: Callable[[dict[str, Any]], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> list[dict[str, Any]]:
-        return service_scan.scan_files(
-            max_workers=self.max_workers,
-            scan_file=self.scan_file,
-            file_paths=file_paths,
-            on_result=on_result,
-            cancel_event=cancel_event,
-        )
+        file_list = list(file_paths)
+        if not file_list:
+            return []
+        results: list[dict[str, Any] | None] = [None] * len(file_list)
+        async with self._client_context() as (client, rate_limiter, semaphore):
+            if len(file_list) <= self.max_workers:
+                return await self._scan_files_small_batch_async(
+                    client, rate_limiter, file_list, on_result, cancel_event
+                )
+            prepare_queue: asyncio.Queue[tuple[int, str] | None] = asyncio.Queue()
+            live_queue: asyncio.Queue[tuple[int, str, str] | None] = asyncio.Queue()
+            worker_count = self.max_workers
 
-    def scan_hashes(
+            for idx, file_path in enumerate(file_list):
+                prepare_queue.put_nowait((idx, file_path))
+            for _ in range(worker_count):
+                prepare_queue.put_nowait(None)
+
+            async def _scan_one(idx: int, file_path: str, file_hash: str) -> None:
+                result = await self._scan_file_live_async(client, rate_limiter, file_path, file_hash, cancel_event)
+                results[idx] = result
+                if on_result is not None:
+                    on_result(result)
+
+            async with asyncio.TaskGroup() as tg:
+                async def _prepare_worker() -> None:
+                    while True:
+                        item = await prepare_queue.get()
+                        try:
+                            if item is None:
+                                return
+                            idx, file_path = item
+                            if cancel_event is not None and cancel_event.is_set():
+                                continue
+                            immediate, unresolved = await self._prepare_file_scan_async(file_path, cancel_event)
+                            if immediate is not None:
+                                results[idx] = immediate
+                                if on_result is not None:
+                                    on_result(immediate)
+                                continue
+                            if unresolved is not None:
+                                unresolved_path, file_hash = unresolved
+                                await live_queue.put((idx, unresolved_path, file_hash))
+                        finally:
+                            prepare_queue.task_done()
+
+                async def _live_worker() -> None:
+                    while True:
+                        item = await live_queue.get()
+                        try:
+                            if item is None:
+                                return
+                            idx, unresolved_path, file_hash = item
+                            async with semaphore:
+                                if cancel_event is not None and cancel_event.is_set():
+                                    continue
+                                await _scan_one(idx, unresolved_path, file_hash)
+                        finally:
+                            live_queue.task_done()
+
+                async def _close_live_queue() -> None:
+                    await prepare_queue.join()
+                    for _ in range(worker_count):
+                        await live_queue.put(None)
+
+                for _ in range(worker_count):
+                    tg.create_task(_prepare_worker())
+                    tg.create_task(_live_worker())
+                tg.create_task(_close_live_queue())
+        return [result for result in results if result is not None]
+
+    async def scan_hashes(
         self,
         hashes: Iterable[str],
         on_result: Callable[[dict[str, Any]], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> list[dict[str, Any]]:
-        return service_scan.scan_hashes(
-            max_workers=self.max_workers,
-            scan_hash=self.scan_hash,
-            hashes=hashes,
-            on_result=on_result,
-            cancel_event=cancel_event,
-        )
+        hash_list = list(hashes)
+        if not hash_list:
+            return []
+        results: list[dict[str, Any] | None] = [None] * len(hash_list)
+        async with self._client_context() as (client, rate_limiter, semaphore):
+            if len(hash_list) <= self.max_workers:
+                return await self._scan_hashes_small_batch_async(
+                    client, rate_limiter, hash_list, on_result, cancel_event
+                )
+            prepare_queue: asyncio.Queue[tuple[int, str] | None] = asyncio.Queue()
+            unique_queue: asyncio.Queue[str | None] = asyncio.Queue()
+            completed_queue: asyncio.Queue[tuple[str, dict[str, Any]] | None] = asyncio.Queue()
+            worker_count = self.max_workers
+            pending_indices: dict[str, list[int]] = {}
+            completed_results: dict[str, dict[str, Any]] = {}
 
-    def scan_directory(
+            for idx, file_hash in enumerate(hash_list):
+                prepare_queue.put_nowait((idx, file_hash))
+            for _ in range(worker_count):
+                prepare_queue.put_nowait(None)
+
+            async with asyncio.TaskGroup() as tg:
+                async def _prepare_worker() -> None:
+                    while True:
+                        item = await prepare_queue.get()
+                        try:
+                            if item is None:
+                                return
+                            idx, file_hash = item
+                            if cancel_event is not None and cancel_event.is_set():
+                                continue
+                            immediate, unresolved = await self._prepare_hash_scan_async(file_hash, cancel_event)
+                            if immediate is not None:
+                                results[idx] = immediate
+                                if on_result is not None:
+                                    on_result(immediate)
+                                continue
+                            if unresolved is None:
+                                continue
+                            cached_result = completed_results.get(unresolved)
+                            if cached_result is not None:
+                                result = dict(cached_result)
+                                results[idx] = result
+                                if on_result is not None:
+                                    on_result(result)
+                                continue
+                            waiters = pending_indices.get(unresolved)
+                            if waiters is None:
+                                pending_indices[unresolved] = [idx]
+                                await unique_queue.put(unresolved)
+                            else:
+                                waiters.append(idx)
+                        finally:
+                            prepare_queue.task_done()
+
+                async def _live_worker() -> None:
+                    while True:
+                        normalized_hash = await unique_queue.get()
+                        try:
+                            if normalized_hash is None:
+                                return
+                            async with semaphore:
+                                if cancel_event is not None and cancel_event.is_set():
+                                    await completed_queue.put((normalized_hash, self._cancelled_result(normalized_hash, "hash")))
+                                    continue
+                                result = await self._scan_hash_live_async(client, rate_limiter, normalized_hash)
+                                await completed_queue.put((normalized_hash, result))
+                        finally:
+                            unique_queue.task_done()
+
+                async def _completion_worker() -> None:
+                    while True:
+                        item = await completed_queue.get()
+                        try:
+                            if item is None:
+                                return
+                            normalized_hash, result = item
+                            completed_results[normalized_hash] = result
+                            for idx in pending_indices.pop(normalized_hash, []):
+                                emitted = dict(result)
+                                results[idx] = emitted
+                                if on_result is not None:
+                                    on_result(emitted)
+                        finally:
+                            completed_queue.task_done()
+
+                async def _close_unique_queue() -> None:
+                    await prepare_queue.join()
+                    for _ in range(worker_count):
+                        await unique_queue.put(None)
+
+                async def _close_completed_queue() -> None:
+                    await unique_queue.join()
+                    await completed_queue.put(None)
+
+                for _ in range(worker_count):
+                    tg.create_task(_prepare_worker())
+                    tg.create_task(_live_worker())
+                tg.create_task(_completion_worker())
+                tg.create_task(_close_unique_queue())
+                tg.create_task(_close_completed_queue())
+        return [result for result in results if result is not None]
+
+    async def scan_directory(
         self,
         directory: str,
         recursive: bool = False,
         on_result: Callable[[dict[str, Any]], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> list[dict[str, Any]]:
-        return service_scan.scan_directory(
+        async def _scan_files_fn(
+            fps: Iterable[str],
+            on_r: Callable[[dict[str, Any]], None] | None,
+            ce: threading.Event | None,
+        ) -> list[dict[str, Any]]:
+            return await self.scan_files(fps, on_result=on_r, cancel_event=ce)
+
+        return await service_scan.scan_directory_async(
             directory,
-            scan_files=self.scan_files,
+            scan_files_fn=_scan_files_fn,
             error_result=self._error_result,
             recursive=recursive,
             on_result=on_result,
             cancel_event=cancel_event,
         )
 
+    async def upload_files_direct(
+        self,
+        entries: list[tuple[str, str]],
+        on_result: Callable[[dict[str, Any]], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> list[dict[str, Any]]:
+        hash_by_path = {fp: fh for fp, fh in entries}
+        async with self._client_context() as (client, rate_limiter, semaphore):
+            async def _upload_one(fp: str) -> dict[str, Any]:
+                return await self._upload_file_direct_async(
+                    client, rate_limiter, fp, hash_by_path[fp], cancel_event
+                )
+            return await service_scan.scan_many_async(
+                semaphore, _upload_one, [fp for fp, _ in entries], on_result=on_result, cancel_event=cancel_event
+            )

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 import time
 from pathlib import Path
 
 import pytest
 
 from common.cache import ScanCache
+from common.service import ScannerService
 
 
 def _row_count(db_path: Path) -> int:
@@ -226,3 +228,31 @@ def test_cache_get_restores_row_count_when_stale_delete_commit_fails(monkeypatch
 
     assert fake_conn.rollback_called is True
     assert cache._row_count == 9  # noqa: SLF001
+
+
+def test_service_close_waits_for_cache_executor_before_closing_cache(tmp_path) -> None:
+    service = ScannerService(api_key="test", cache_db=tmp_path / "vt_cache.db")
+    service.init_cache()
+    started = threading.Event()
+    release = threading.Event()
+    original_get = service._cache.get  # noqa: SLF001
+    call_count = {"value": 0}
+
+    def _blocking_get(file_hash: str):
+        call_count["value"] += 1
+        started.set()
+        if call_count["value"] == 1:
+            release.wait(timeout=1.0)
+        return original_get(file_hash)
+
+    service._cache.get = _blocking_get  # type: ignore[method-assign]  # noqa: SLF001
+    future = service._cache_executor.submit(service._cache.get, "a" * 64)  # noqa: SLF001
+    assert started.wait(timeout=1.0) is True
+    service._cache_executor.submit(service._cache.get, "a" * 64)  # noqa: SLF001
+    release.set()
+    future.result(timeout=1.0)
+
+    service.close()
+
+    assert service._cache._conn is None  # noqa: SLF001
+    assert call_count["value"] == 2
