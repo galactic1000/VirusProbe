@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import sys
-from types import SimpleNamespace
 
 import pytest
 
 import cli.app as cli_app
+from cli.app import _build_parser
+from cli.display import print_scan_summary
 
 
 class FakeService:
@@ -37,6 +38,84 @@ class FakeService:
 def _run_main(monkeypatch, argv: list[str]) -> None:
     monkeypatch.setattr(sys, "argv", argv)
     cli_app.main()
+
+
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
+
+
+def test_h_flag_shows_help() -> None:
+    parser = _build_parser()
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["-h"])
+    assert exc.value.code == 0
+
+
+def test_s_flag_maps_to_hashes() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["-s", "a" * 64])
+    assert args.hashes == ["a" * 64]
+
+
+@pytest.mark.parametrize("argv,expected", [
+    (["-o"], "__AUTO_OUTPUT__"),
+    (["-o", "my_report.json"], "my_report.json"),
+])
+def test_output_flag_parsing(argv, expected) -> None:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    assert args.output == expected
+
+
+@pytest.mark.parametrize("rpm_flags,expected", [
+    ([], None),
+    (["--requests-per-minute", "0"], 0),
+    (["--requests-per-minute", "60"], 60),
+])
+def test_requests_per_minute_parsing(rpm_flags, expected) -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["-s", "a" * 64] + rpm_flags)
+    assert args.requests_per_minute == expected
+
+
+def test_upload_timeout_parsing() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["-s", "a" * 64, "--upload-timeout", "30"])
+    assert args.upload_timeout == 30
+
+
+# ---------------------------------------------------------------------------
+# Display
+# ---------------------------------------------------------------------------
+
+
+def test_print_scan_summary_counts_suspicious_detections(capsys) -> None:
+    print_scan_summary(
+        [
+            {
+                "item": "SHA-256 hash: " + ("a" * 64),
+                "type": "hash",
+                "file_hash": "a" * 64,
+                "malicious": 0,
+                "suspicious": 3,
+                "harmless": 12,
+                "undetected": 1,
+                "threat_level": "Suspicious",
+                "status": "ok",
+                "message": "",
+            }
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert "SUSPICIOUS ITEMS" in output
+    assert "(3 detections)" in output
+
+
+# ---------------------------------------------------------------------------
+# Behavior
+# ---------------------------------------------------------------------------
 
 
 def test_main_errors_when_recursive_without_directory(monkeypatch) -> None:
@@ -126,7 +205,6 @@ def test_upload_filter_path_glob_matches_resolved_absolute_path(tmp_path, monkey
     file_path.write_bytes(b"x")
     monkeypatch.chdir(root)
 
-    # Path globs are matched against resolved absolute path values.
     matcher = cli_app._build_upload_filter(["*/samples/*.dll"])
     assert matcher(str(file_path)) is True
 
@@ -243,7 +321,7 @@ def test_main_accepts_zero_upload_timeout(monkeypatch) -> None:
     monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
     monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
 
-    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload-timeout", "0"])
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload", "--upload-timeout", "0"])
     assert captured["upload_timeout_minutes"] == 0
 
 
