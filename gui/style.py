@@ -124,7 +124,7 @@ def _linux_prefers_dark_mode() -> bool:
 
 
 def _apply_windows_titlebar_mode(root: tk.Misc, dark_mode: bool) -> None:
-    if not sys.platform.startswith("win"):
+    if not _IS_WINDOWS:
         return
     try:
         root.update_idletasks()
