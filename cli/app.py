@@ -196,6 +196,8 @@ def main() -> None:
         args.requests_per_minute = saved_rpm if saved_rpm is not None else DEFAULT_REQUESTS_PER_MINUTE
     if args.requests_per_minute < 0:
         parser.error("--requests-per-minute must be >= 0")
+    if args.upload_timeout is not None and not args.upload:
+        parser.error("--upload-timeout requires --upload")
     if args.upload_timeout is None:
         saved_upload_timeout = get_upload_timeout_minutes()
         args.upload_timeout = saved_upload_timeout if saved_upload_timeout is not None else DEFAULT_UPLOAD_TIMEOUT_MINUTES

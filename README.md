@@ -90,7 +90,7 @@ python gui.py
 **GUI**
 - Drag-and-drop file support
 - Live scan progress bar and per-row status updates
-- Advanced settings dialog (theme mode, workers, rate limit, upload mode) persisted to `.env`
+- Advanced settings dialog (theme mode, workers, rate limit, upload timeout, upload mode) persisted to `.env`
 
 ## CLI Usage
 

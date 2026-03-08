@@ -324,20 +324,13 @@ class AdvancedDialog(AppDialog):
         theme_combo.grid(row=0, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
         theme_combo.set(self._theme_var.get())
 
-        ttk.Label(body, text="Workers:").grid(row=1, column=0, sticky=tk.W, pady=(0, 10))
-        ttk.Spinbox(body, from_=1, to=self._MAX_WORKERS, textvariable=self._workers_var, width=6).grid(row=1, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
+        ttk.Separator(body, orient=tk.HORIZONTAL).grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(0, 10))
 
-        ttk.Label(body, text="Req/min (0 = unlimited):").grid(row=2, column=0, sticky=tk.W, pady=(0, 10))
-        ttk.Spinbox(body, from_=0, to=self._MAX_RPM, textvariable=self._rpm_var, width=6).grid(row=2, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
+        ttk.Label(body, text="Workers:").grid(row=2, column=0, sticky=tk.W, pady=(0, 10))
+        ttk.Spinbox(body, from_=1, to=self._MAX_WORKERS, textvariable=self._workers_var, width=6).grid(row=2, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
 
-        ttk.Label(body, text="Upload timeout (min, 0 = none):").grid(row=3, column=0, sticky=tk.W, pady=(0, 10))
-        ttk.Spinbox(
-            body,
-            from_=0,
-            to=self._MAX_UPLOAD_TIMEOUT,
-            textvariable=self._upload_timeout_var,
-            width=6,
-        ).grid(row=3, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
+        ttk.Label(body, text="Req/min (0 = unlimited):").grid(row=3, column=0, sticky=tk.W, pady=(0, 10))
+        ttk.Spinbox(body, from_=0, to=self._MAX_RPM, textvariable=self._rpm_var, width=6).grid(row=3, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
 
         ttk.Separator(body, orient=tk.HORIZONTAL).grid(row=4, column=0, columnspan=2, sticky=tk.EW, pady=(4, 10))
 
@@ -353,9 +346,19 @@ class AdvancedDialog(AppDialog):
         auto_chk = ttk.Checkbutton(sub_frame, text="Auto-upload all undetected items (uses extra API quota)", variable=self._auto_upload_var)
         auto_chk.pack(anchor=tk.W)
 
+        timeout_frame = ttk.Frame(body)
+        timeout_frame.grid(row=7, column=0, columnspan=2, sticky=tk.W, padx=(20, 0), pady=(4, 2))
+        timeout_label = ttk.Label(timeout_frame, text="Upload timeout (0 = none):")
+        timeout_label.pack(side=tk.LEFT)
+        timeout_spinbox = ttk.Spinbox(timeout_frame, from_=0, to=self._MAX_UPLOAD_TIMEOUT, textvariable=self._upload_timeout_var, width=6)
+        timeout_spinbox.pack(side=tk.LEFT, padx=(12, 0))
+
         def toggle_sub(*_: object) -> None:
             enabled = self._upload_enabled_var.get()
-            auto_chk.configure(state=tk.NORMAL if enabled else tk.DISABLED)
+            state = tk.NORMAL if enabled else tk.DISABLED
+            auto_chk.configure(state=state)
+            timeout_label.configure(foreground="" if enabled else "gray")
+            timeout_spinbox.configure(state=state)
             if not enabled:
                 self._auto_upload_var.set(False)
 
