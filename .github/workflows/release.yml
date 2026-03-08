@@ -15,14 +15,17 @@ jobs:
             artifact_suffix: windows
             cli_name: VirusProbe-CLI.exe
             gui_name: VirusProbe-GUI.exe
+            strip: ""
           - os: ubuntu-latest
             artifact_suffix: linux
             cli_name: VirusProbe-CLI
             gui_name: VirusProbe-GUI
+            strip: --strip
           - os: macos-latest
             artifact_suffix: macos
             cli_name: VirusProbe-CLI
             gui_name: VirusProbe-GUI
+            strip: --strip
 
     runs-on: ${{ matrix.os }}
 
@@ -45,12 +48,12 @@ jobs:
       - name: Build CLI executable
         run: >-
           pyinstaller --onefile --name ${{ matrix.cli_name }}
-          --icon gui/assets/icon.png cli.py
+          ${{ matrix.strip }} --icon gui/assets/icon.png cli.py
 
       - name: Build GUI executable
         run: >-
           pyinstaller --onefile --name ${{ matrix.gui_name }} --windowed
-          --additional-hooks-dir=.github/pyinstaller_hooks
+          ${{ matrix.strip }} --additional-hooks-dir=.github/pyinstaller_hooks
           --add-data "gui/assets/icon.png:gui/assets"
           --icon gui/assets/icon.png gui.py
 
