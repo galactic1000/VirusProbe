@@ -43,7 +43,9 @@ jobs:
           pip install pyinstaller pillow
 
       - name: Build CLI executable
-        run: pyinstaller --onefile --name ${{ matrix.cli_name }} cli.py
+        run: >-
+          pyinstaller --onefile --name ${{ matrix.cli_name }}
+          --icon gui/assets/icon.png cli.py
 
       - name: Build GUI executable
         run: >-
