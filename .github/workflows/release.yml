@@ -15,7 +15,6 @@ jobs:
             artifact_suffix: windows
             cli_name: VirusProbe-CLI.exe
             gui_name: VirusProbe-GUI.exe
-            strip: ""
           - os: ubuntu-latest
             artifact_suffix: linux
             cli_name: VirusProbe-CLI
