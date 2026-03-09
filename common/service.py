@@ -18,6 +18,7 @@ from .api_errors import BATCH_FATAL_API_ERROR_CODES
 from .cache import ScanCache
 from .defaults import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
 from .rate_limit import AsyncRateLimiter
+from . import service_results as sr
 from . import service_scan
 from . import service_upload
 
@@ -33,7 +34,9 @@ def _is_batch_fatal_api_error(exc: vt.APIError) -> bool:
 class ScannerService:
     """VirusTotal scanner backed by ScanCache."""
 
-    _HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
+    # Public aliases for callers that access these via the class
+    classify_threat = staticmethod(sr.classify_threat)
+    is_sha256 = staticmethod(sr.is_sha256)
 
     def __init__(
         self,
@@ -138,99 +141,13 @@ class ScannerService:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._hash_executor, ScannerService.hash_file, file_path, cancel_event)
 
-    @staticmethod
-    def _hash_item(value: object) -> str:
-        return f"SHA-256 hash: {value}"
-
-    @staticmethod
-    def _base_result(item: str, item_type: str, file_hash: str, threat_level: str, status: str, message: str) -> dict[str, Any]:
-        return {
-            "item": item,
-            "type": item_type,
-            "file_hash": file_hash,
-            "malicious": 0,
-            "suspicious": 0,
-            "harmless": 0,
-            "undetected": 0,
-            "threat_level": threat_level,
-            "status": status,
-            "message": message,
-            "was_cached": False,
-            "was_uploaded": False,
-        }
-
-    @staticmethod
-    def _error_result(item: str, item_type: str, message: str, file_hash: str = "") -> dict[str, Any]:
-        return ScannerService._base_result(item, item_type, file_hash, "Error", "error", message)
-
-    @staticmethod
-    def _cancelled_result(item: str, item_type: str, file_hash: str = "") -> dict[str, Any]:
-        return ScannerService._base_result(item, item_type, file_hash, "Cancelled", "cancelled", "Cancelled by user")
-
-    @classmethod
-    def _hash_error(cls, value: object, message: str, file_hash: str = "") -> dict[str, Any]:
-        return cls._error_result(item=cls._hash_item(value), item_type="hash", message=message, file_hash=file_hash)
-
-    @classmethod
-    def _not_found_result(cls, normalized_hash: str) -> dict[str, Any]:
-        return cls._base_result(cls._hash_item(normalized_hash), "hash", normalized_hash, "Undetected", "undetected", "No VirusTotal record found")
-
-    @staticmethod
-    def is_sha256(value: str) -> bool:
-        return len(value) == 64 and all(c in ScannerService._HEX_CHARS for c in value)
-
-    @staticmethod
-    def classify_threat(malicious: int, suspicious: int = 0) -> str:
-        if malicious >= 10:
-            return "Malicious"
-        if malicious > 0 or suspicious >= 3:
-            return "Suspicious"
-        return "Clean"
-
-    @staticmethod
-    def _extract_stats(obj: vt.Object) -> tuple[int, int, int, int]:
-        stats = obj.last_analysis_stats
-        if not isinstance(stats, dict):
-            raise ValueError("VirusTotal response missing analysis stats")
-        return (
-            int(stats["malicious"]),
-            int(stats["suspicious"]),
-            int(stats["harmless"]),
-            int(stats["undetected"]),
-        )
-
-    def _stats_result(
-        self,
-        *,
-        item: str,
-        item_type: str,
-        file_hash: str,
-        stats: tuple[int, int, int, int],
-        was_cached: bool,
-    ) -> dict[str, Any]:
-        malicious, suspicious, harmless, undetected = stats
-        return {
-            "item": item,
-            "type": item_type,
-            "file_hash": file_hash,
-            "malicious": malicious,
-            "suspicious": suspicious,
-            "harmless": harmless,
-            "undetected": undetected,
-            "threat_level": self.classify_threat(malicious, suspicious),
-            "status": "ok",
-            "message": "Using cached result" if was_cached else "Queried VirusTotal API",
-            "was_cached": was_cached,
-            "was_uploaded": False,
-        }
-
     async def _cached_result_async(self, *, item: str, item_type: str, file_hash: str) -> dict[str, Any] | None:
         cached = await self._cache_get_async(file_hash)
         if cached is None:
             return None
         if item_type == "hash":
-            item = self._hash_item(file_hash)
-        return self._stats_result(
+            item = sr.hash_item(file_hash)
+        return sr.stats_result(
             item=item,
             item_type=item_type,
             file_hash=file_hash,
@@ -244,18 +161,18 @@ class ScannerService:
         cancel_event: threading.Event | None = None,
     ) -> tuple[dict[str, Any] | None, tuple[str, str] | None]:
         if cancel_event is not None and cancel_event.is_set():
-            return self._cancelled_result(file_path, "file"), None
+            return sr.cancelled_result(file_path, "file"), None
         path = Path(file_path)
         if not path.exists():
-            return self._error_result(file_path, "file", f"File '{file_path}' does not exist"), None
+            return sr.error_result(file_path, "file", f"File '{file_path}' does not exist"), None
         if not path.is_file():
-            return self._error_result(file_path, "file", f"'{file_path}' is not a file"), None
+            return sr.error_result(file_path, "file", f"'{file_path}' is not a file"), None
         try:
             file_hash = await self.hash_file_async(file_path, cancel_event)
         except _HashCancelled:
-            return self._cancelled_result(file_path, "file"), None
+            return sr.cancelled_result(file_path, "file"), None
         except OSError as exc:
-            return self._error_result(file_path, "file", str(exc)), None
+            return sr.error_result(file_path, "file", str(exc)), None
         cached = await self._cached_result_async(item=file_path, item_type="file", file_hash=file_hash)
         if cached is not None:
             return cached, None
@@ -267,12 +184,12 @@ class ScannerService:
         cancel_event: threading.Event | None = None,
     ) -> tuple[dict[str, Any] | None, str | None]:
         if cancel_event is not None and cancel_event.is_set():
-            return self._cancelled_result(str(file_hash), "hash"), None
+            return sr.cancelled_result(str(file_hash), "hash"), None
         if not isinstance(file_hash, str):
-            return self._hash_error(file_hash, "Invalid SHA-256 hash format"), None
+            return sr.hash_error(file_hash, "Invalid SHA-256 hash format"), None
         normalized_input = file_hash.strip()
-        if not self.is_sha256(normalized_input):
-            return self._hash_error(normalized_input, "Invalid SHA-256 hash format", normalized_input.lower()), None
+        if not sr.is_sha256(normalized_input):
+            return sr.hash_error(normalized_input, "Invalid SHA-256 hash format", normalized_input.lower()), None
         normalized_hash = normalized_input.lower()
         cached = await self._cached_result_async(item=normalized_hash, item_type="hash", file_hash=normalized_hash)
         if cached is not None:
@@ -293,7 +210,7 @@ class ScannerService:
                 return cached, True
         await rate_limiter.acquire()
         obj = await client.get_object_async(f"/files/{file_hash}")
-        stats = self._extract_stats(obj)
+        stats = sr.extract_stats(obj)
         try:
             await self._cache_save_async(file_hash, stats)
         except Exception:
@@ -314,9 +231,9 @@ class ScannerService:
                 client, rate_limiter, self._requests_per_minute, self._upload_timeout_minutes, aid, ce
             ),
             cache_save=self._cache_save_async,
-            classify_threat=self.classify_threat,
-            error_result=self._error_result,
-            cancelled_result=self._cancelled_result,
+            classify_threat=sr.classify_threat,
+            error_result=sr.error_result,
+            cancelled_result=sr.cancelled_result,
             file_path=file_path,
             file_hash=file_hash,
             cancel_event=cancel_event,
@@ -331,19 +248,19 @@ class ScannerService:
         cancel_event: threading.Event | None = None,
     ) -> dict[str, Any]:
         if cancel_event is not None and cancel_event.is_set():
-            return self._cancelled_result(file_path, "file", file_hash)
+            return sr.cancelled_result(file_path, "file", file_hash)
         path = Path(file_path)
         if not path.exists():
-            return self._error_result(file_path, "file", f"File not found: {file_path}", file_hash)
+            return sr.error_result(file_path, "file", f"File not found: {file_path}", file_hash)
         if not path.is_file():
-            return self._error_result(file_path, "file", f"Not a file: {file_path}", file_hash)
+            return sr.error_result(file_path, "file", f"Not a file: {file_path}", file_hash)
         if not file_hash:
             try:
                 file_hash = await self.hash_file_async(file_path, cancel_event)
             except _HashCancelled:
-                return self._cancelled_result(file_path, "file")
+                return sr.cancelled_result(file_path, "file")
             except OSError as exc:
-                return self._error_result(file_path, "file", str(exc))
+                return sr.error_result(file_path, "file", str(exc))
         return await self._upload_and_scan_async(client, rate_limiter, file_path, file_hash, cancel_event)
 
     async def _scan_file_live_async(
@@ -366,18 +283,18 @@ class ScannerService:
             ):
                 return await self._upload_and_scan_async(client, rate_limiter, file_path, file_hash, cancel_event)
             if exc.code == "NotFoundError":
-                result = self._not_found_result(file_hash)
+                result = sr.not_found_result(file_hash)
                 result.update({"item": file_path, "type": "file"})
                 return result
-            return self._error_result(file_path, "file", str(exc), file_hash)
+            return sr.error_result(file_path, "file", str(exc), file_hash)
         except ValueError as exc:
-            return self._error_result(file_path, "file", f"Unexpected VT response: {exc}", file_hash)
+            return sr.error_result(file_path, "file", f"Unexpected VT response: {exc}", file_hash)
         except Exception as exc:
-            result = self._hash_error(file_hash, str(exc), file_hash)
+            result = sr.hash_error(file_hash, str(exc), file_hash)
             result.update({"item": file_path, "type": "file"})
             return result
 
-        return self._stats_result(
+        return sr.stats_result(
             item=file_path,
             item_type="file",
             file_hash=file_hash,
@@ -399,15 +316,15 @@ class ScannerService:
             if _is_batch_fatal_api_error(exc):
                 raise
             if exc.code == "NotFoundError":
-                return self._not_found_result(normalized_hash)
-            return self._hash_error(normalized_hash, str(exc), normalized_hash)
+                return sr.not_found_result(normalized_hash)
+            return sr.hash_error(normalized_hash, str(exc), normalized_hash)
         except ValueError:
-            return self._not_found_result(normalized_hash)
+            return sr.not_found_result(normalized_hash)
         except Exception as exc:
-            return self._hash_error(normalized_hash, str(exc), normalized_hash)
+            return sr.hash_error(normalized_hash, str(exc), normalized_hash)
 
-        return self._stats_result(
-            item=self._hash_item(normalized_hash),
+        return sr.stats_result(
+            item=sr.hash_item(normalized_hash),
             item_type="hash",
             file_hash=normalized_hash,
             stats=(malicious, suspicious, harmless, undetected),
@@ -426,7 +343,7 @@ class ScannerService:
 
         async def _run_one(idx: int, file_path: str) -> None:
             if cancel_event is not None and cancel_event.is_set():
-                result = self._cancelled_result(file_path, "file")
+                result = sr.cancelled_result(file_path, "file")
                 results[idx] = result
                 if on_result is not None:
                     on_result(result)
@@ -460,7 +377,7 @@ class ScannerService:
 
         async def _run_one(idx: int, raw_hash: str) -> None:
             if cancel_event is not None and cancel_event.is_set():
-                result = self._cancelled_result(raw_hash, "hash")
+                result = sr.cancelled_result(raw_hash, "hash")
                 results[idx] = result
                 if on_result is not None:
                     on_result(result)
@@ -495,15 +412,6 @@ class ScannerService:
 
     @asynccontextmanager
     async def async_session(self):
-        """Open a single shared vt.Client for the duration of the block.
-
-        Use this to avoid opening a new connection for each scan_files /
-        scan_hashes / scan_directory / upload_files_direct call:
-
-            async with scanner.async_session():
-                await scanner.scan_files(...)
-                await scanner.scan_hashes(...)
-        """
         rate_limiter = AsyncRateLimiter(self._requests_per_minute)
         semaphore = asyncio.Semaphore(self.max_workers)
         async with vt.Client(self.api_key) as client:
@@ -556,7 +464,7 @@ class ScannerService:
                                 return
                             idx, file_path = item
                             if cancel_event is not None and cancel_event.is_set():
-                                result = self._cancelled_result(file_path, "file")
+                                result = sr.cancelled_result(file_path, "file")
                                 results[idx] = result
                                 if on_result is not None:
                                     on_result(result)
@@ -582,7 +490,7 @@ class ScannerService:
                             idx, unresolved_path, file_hash = item
                             async with semaphore:
                                 if cancel_event is not None and cancel_event.is_set():
-                                    result = self._cancelled_result(unresolved_path, "file", file_hash)
+                                    result = sr.cancelled_result(unresolved_path, "file", file_hash)
                                     results[idx] = result
                                     if on_result is not None:
                                         on_result(result)
@@ -638,7 +546,7 @@ class ScannerService:
                                 return
                             idx, file_hash = item
                             if cancel_event is not None and cancel_event.is_set():
-                                result = self._cancelled_result(str(file_hash), "hash")
+                                result = sr.cancelled_result(str(file_hash), "hash")
                                 results[idx] = result
                                 if on_result is not None:
                                     on_result(result)
@@ -675,7 +583,7 @@ class ScannerService:
                                 return
                             async with semaphore:
                                 if cancel_event is not None and cancel_event.is_set():
-                                    await completed_queue.put((normalized_hash, self._cancelled_result(normalized_hash, "hash")))
+                                    await completed_queue.put((normalized_hash, sr.cancelled_result(normalized_hash, "hash")))
                                     continue
                                 result = await self._scan_hash_live_async(client, rate_limiter, normalized_hash)
                                 await completed_queue.put((normalized_hash, result))
@@ -732,7 +640,7 @@ class ScannerService:
         return await service_scan.scan_directory_async(
             directory,
             scan_files_fn=_scan_files_fn,
-            error_result=self._error_result,
+            error_result=sr.error_result,
             recursive=recursive,
             on_result=on_result,
             cancel_event=cancel_event,

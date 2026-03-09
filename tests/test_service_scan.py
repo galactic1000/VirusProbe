@@ -185,7 +185,8 @@ def test_scan_files_starts_live_lookup_before_all_preparation_finishes(tmp_path)
         if file_path == "first":
             return None, (file_path, "a" * 64)
         await live_started.wait()
-        return service._error_result(file_path, "file", "prepared after live start"), None
+        from common import service_results
+        return service_results.error_result(file_path, "file", "prepared after live start"), None
 
     async def _query(client, rate_limiter, file_hash: str, *, check_cache: bool = True):
         live_started.set()

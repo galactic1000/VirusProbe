@@ -8,6 +8,7 @@ import pytest
 import vt
 
 from common.service import ScannerService
+from common import service_results
 from common import service_upload
 
 
@@ -76,9 +77,9 @@ def test_upload_and_scan_success_sets_uploaded_and_caches(tmp_path) -> None:
                 upload_file_fn=AsyncMock(return_value="analysis-id"),
                 poll_analysis_fn=AsyncMock(return_value=(2, 1, 30, 4)),
                 cache_save=service._cache.save, # type: ignore
-                classify_threat=service.classify_threat,
-                error_result=service._error_result,
-                cancelled_result=service._cancelled_result,
+                classify_threat=service_results.classify_threat,
+                error_result=service_results.error_result,
+                cancelled_result=service_results.cancelled_result,
                 file_path=str(sample),
                 file_hash=file_hash,
             )
@@ -100,9 +101,9 @@ def test_upload_and_scan_failure_returns_error(tmp_path) -> None:
                 upload_file_fn=AsyncMock(side_effect=RuntimeError("boom")),
                 poll_analysis_fn=AsyncMock(),
                 cache_save=lambda *_: None, # type: ignore
-                classify_threat=service.classify_threat,
-                error_result=service._error_result,
-                cancelled_result=service._cancelled_result,
+                classify_threat=service_results.classify_threat,
+                error_result=service_results.error_result,
+                cancelled_result=service_results.cancelled_result,
                 file_path="some_file.bin",
                 file_hash="a" * 64,
             )
@@ -125,9 +126,9 @@ def test_upload_and_scan_cache_save_failure_still_returns_success(tmp_path) -> N
                 upload_file_fn=AsyncMock(return_value="analysis-id"),
                 poll_analysis_fn=AsyncMock(return_value=(1, 0, 10, 0)),
                 cache_save=AsyncMock(side_effect=RuntimeError("cache write failed")),
-                classify_threat=service.classify_threat,
-                error_result=service._error_result,
-                cancelled_result=service._cancelled_result,
+                classify_threat=service_results.classify_threat,
+                error_result=service_results.error_result,
+                cancelled_result=service_results.cancelled_result,
                 file_path=str(sample),
                 file_hash=file_hash,
             )
@@ -150,9 +151,9 @@ def test_upload_and_scan_malformed_poll_response_returns_error(tmp_path) -> None
                 upload_file_fn=AsyncMock(return_value="analysis-id"),
                 poll_analysis_fn=AsyncMock(side_effect=KeyError("stats")),
                 cache_save=lambda *_: None, # pyright: ignore[reportArgumentType]
-                classify_threat=service.classify_threat,
-                error_result=service._error_result,
-                cancelled_result=service._cancelled_result,
+                classify_threat=service_results.classify_threat,
+                error_result=service_results.error_result,
+                cancelled_result=service_results.cancelled_result,
                 file_path=str(sample),
                 file_hash=file_hash,
             )
