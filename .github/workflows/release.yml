@@ -43,6 +43,10 @@ jobs:
         with:
           python-version: '3.x'
           cache: 'pip'
+          cache-dependency-path: |
+            requirements-cli.txt
+            requirements-gui.txt
+            .github/requirements-build.txt
 
       - name: Install dependencies
         run: |
