@@ -16,7 +16,7 @@ from tkinterdnd2 import TkinterDnD
 from ttkbootstrap.dialogs.dialogs import Messagebox
 from ttkbootstrap.widgets import ToastNotification
 
-from common import CACHE_DB, THEME_AUTO, UPLOAD_AUTO, get_theme_mode
+from common import CACHE_DB, THEME_AUTO, UPLOAD_AUTO, get_theme_mode, is_valid_api_key
 from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
 
 from .os_detect import IS_WINDOWS, IS_MACOS, IS_LINUX
@@ -118,6 +118,12 @@ class VirusProbeGUI(ttk.Window):
     def on_set_api_key(self) -> None:
         value = show_set_api_key_dialog(self, self.model.api_key)
         if value is None:
+            return
+        if value and not is_valid_api_key(value):
+            self._show_error(
+                "Invalid API Key",
+                "VirusTotal API keys must be 64 hex characters. Please check your key and try again.",
+            )
             return
         self.model.set_api_key(value)
         self._update_api_key_status()

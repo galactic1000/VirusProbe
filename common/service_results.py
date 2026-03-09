@@ -46,6 +46,10 @@ def not_found_result(normalized_hash: str) -> dict[str, Any]:
     return base_result(hash_item(normalized_hash), "hash", normalized_hash, "Undetected", "undetected", "No VirusTotal record found")
 
 
+def not_found_file_result(file_path: str, file_hash: str) -> dict[str, Any]:
+    return base_result(file_path, "file", file_hash, "Undetected", "undetected", "No VirusTotal record found")
+
+
 def is_sha256(value: str) -> bool:
     return len(value) == 64 and all(c in _HEX_CHARS for c in value)
 

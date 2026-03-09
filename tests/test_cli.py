@@ -120,13 +120,13 @@ def test_print_scan_summary_counts_suspicious_detections(capsys) -> None:
 
 
 def test_main_errors_when_recursive_without_directory(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-r", "-s", "a" * 64])
 
 
 def test_main_errors_when_directory_and_files_used_together(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-d", ".", "-f", "a.bin"])
 
@@ -138,7 +138,7 @@ def test_main_errors_when_api_key_missing(monkeypatch) -> None:
 
 
 def test_main_errors_when_upload_timeout_without_upload(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     with pytest.raises(SystemExit) as exc_info:
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload-timeout", "10"])
     assert exc_info.value.code == 2
@@ -152,7 +152,7 @@ def test_save_api_key_action_only(monkeypatch) -> None:
 
     monkeypatch.setattr(cli_app, "save_api_key_to_env", fake_save)
     monkeypatch.setattr(cli_app, "remove_api_key_from_env", lambda: False)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
 
     _run_main(monkeypatch, ["cli.py", "--api-key", "abc", "--save-api-key"])
     assert calls["saved"] == "abc"
@@ -161,7 +161,7 @@ def test_save_api_key_action_only(monkeypatch) -> None:
 def test_clear_cache_action_only(monkeypatch) -> None:
     FakeService.clear_cache_called = 0
     monkeypatch.setattr(cli_app, "ScannerService", FakeService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
 
     _run_main(monkeypatch, ["cli.py", "--clear-cache"])
     assert FakeService.clear_cache_called == 1
@@ -169,7 +169,7 @@ def test_clear_cache_action_only(monkeypatch) -> None:
 
 def test_invalid_recursive_input_does_not_run_admin_actions(monkeypatch) -> None:
     calls: dict[str, str | None] = {"saved": None}
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     monkeypatch.setattr(cli_app, "save_api_key_to_env", lambda value: calls.__setitem__("saved", value))
 
     with pytest.raises(SystemExit):
@@ -181,7 +181,7 @@ def test_invalid_recursive_input_does_not_run_admin_actions(monkeypatch) -> None
 def test_invalid_upload_filter_input_does_not_clear_cache(monkeypatch) -> None:
     FakeService.clear_cache_called = 0
     monkeypatch.setattr(cli_app, "ScannerService", FakeService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
 
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "--clear-cache", "--upload-filter", "*.exe", "-s", "a" * 64])
@@ -237,7 +237,7 @@ def test_main_exits_1_when_error_results(monkeypatch) -> None:
             return [result]
 
     monkeypatch.setattr(cli_app, "ScannerService", ErrorService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     monkeypatch.setattr(cli_app, "print_banner", lambda: None)
     monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
     monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
@@ -257,7 +257,7 @@ def test_main_exits_0_when_malicious_results(monkeypatch) -> None:
             return [result]
 
     monkeypatch.setattr(cli_app, "ScannerService", MaliciousService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     monkeypatch.setattr(cli_app, "print_banner", lambda: None)
     monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
     monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
@@ -276,7 +276,7 @@ def test_output_toggle_auto_generates_report_name(monkeypatch) -> None:
             return _Now()
 
     monkeypatch.setattr(cli_app, "datetime", FakeDateTime)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     monkeypatch.setattr(cli_app, "ScannerService", FakeService)
 
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "-o", "--format", "md"])
@@ -286,7 +286,7 @@ def test_output_toggle_auto_generates_report_name(monkeypatch) -> None:
 def test_main_uses_env_upload_timeout_when_flag_missing(monkeypatch, env_timeout) -> None:
     CaptureService, captured = _make_capture_service("upload_timeout_minutes")
     monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     monkeypatch.setattr(cli_app, "get_upload_timeout_minutes", lambda: env_timeout)
     monkeypatch.setattr(cli_app, "print_banner", lambda: None)
     monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
@@ -299,7 +299,7 @@ def test_main_uses_env_upload_timeout_when_flag_missing(monkeypatch, env_timeout
 def test_main_accepts_zero_upload_timeout(monkeypatch) -> None:
     CaptureService, captured = _make_capture_service("upload_timeout_minutes")
     monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     monkeypatch.setattr(cli_app, "print_banner", lambda: None)
     monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
     monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
@@ -311,7 +311,7 @@ def test_main_accepts_zero_upload_timeout(monkeypatch) -> None:
 def test_main_uses_env_rpm_and_workers_when_flags_missing(monkeypatch) -> None:
     CaptureService, captured = _make_capture_service("requests_per_minute", "max_workers")
     monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "k")
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     monkeypatch.setattr(cli_app, "get_requests_per_minute", lambda: 0)
     monkeypatch.setattr(cli_app, "get_workers", lambda: 7)
     monkeypatch.setattr(cli_app, "get_upload_timeout_minutes", lambda: 20)

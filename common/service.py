@@ -283,16 +283,12 @@ class ScannerService:
             ):
                 return await self._upload_and_scan_async(client, rate_limiter, file_path, file_hash, cancel_event)
             if exc.code == "NotFoundError":
-                result = sr.not_found_result(file_hash)
-                result |= {"item": file_path, "type": "file"}
-                return result
+                return sr.not_found_file_result(file_path, file_hash)
             return sr.error_result(file_path, "file", str(exc), file_hash)
         except ValueError as exc:
             return sr.error_result(file_path, "file", f"Unexpected VT response: {exc}", file_hash)
         except Exception as exc:
-            result = sr.hash_error(file_hash, str(exc), file_hash)
-            result |= {"item": file_path, "type": "file"}
-            return result
+            return sr.error_result(file_path, "file", str(exc), file_hash)
 
         return sr.stats_result(
             item=file_path,

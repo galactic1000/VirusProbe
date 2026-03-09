@@ -18,6 +18,7 @@ from common import (
     CACHE_DB,
     ScannerService,
     get_api_key,
+    is_valid_api_key,
     get_requests_per_minute,
     get_upload_timeout_minutes,
     get_workers,
@@ -204,7 +205,8 @@ def main() -> None:
     if args.upload_timeout < 0:
         parser.error("--upload-timeout must be >= 0")
     if args.workers is None:
-        args.workers = v if (v := get_workers()) is not None else (args.requests_per_minute if args.requests_per_minute > 0 else DEFAULT_SCAN_WORKERS)
+        default_workers = args.requests_per_minute if args.requests_per_minute > 0 else DEFAULT_SCAN_WORKERS
+        args.workers = v if (v := get_workers()) is not None else default_workers
     if args.workers < 1:
         parser.error("--workers must be >= 1")
 
@@ -225,6 +227,8 @@ def main() -> None:
     api_key = explicit_api_key or get_api_key()
     if not api_key:
         parser.error("VirusTotal API key is required. Set VT_API_KEY in environment or .env file.")
+    if not is_valid_api_key(api_key):
+        parser.error("VirusTotal API key must be a 64-character hex string.")
 
     print_banner()
     if args.requests_per_minute > 0 and args.workers > args.requests_per_minute:
