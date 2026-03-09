@@ -50,12 +50,11 @@ async def run_scan_workflow_async(
         completed += 1
         on_result(result, iid, completed, total)
 
-    async with scanner.async_session():
-        async with asyncio.TaskGroup() as tg:
-            if file_values and not cancel_event.is_set():
-                tg.create_task(scanner.scan_files(file_values, on_result=_on_result, cancel_event=cancel_event))
-            if hash_values and not cancel_event.is_set():
-                tg.create_task(scanner.scan_hashes(hash_values, on_result=_on_result, cancel_event=cancel_event))
+    async with scanner.async_session(), asyncio.TaskGroup() as tg:
+        if file_values and not cancel_event.is_set():
+            tg.create_task(scanner.scan_files(file_values, on_result=_on_result, cancel_event=cancel_event))
+        if hash_values and not cancel_event.is_set():
+            tg.create_task(scanner.scan_hashes(hash_values, on_result=_on_result, cancel_event=cancel_event))
 
     return ScanWorkflowResult(
         results=new_results,

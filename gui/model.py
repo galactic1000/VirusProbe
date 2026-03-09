@@ -38,14 +38,9 @@ class AppModel:
         self.api_key: str | None = get_api_key()
         self.upload_mode: str = get_upload_mode()
         self.theme_mode: str = get_theme_mode() or THEME_AUTO
-        saved_rpm = get_requests_per_minute()
-        saved_workers = get_workers()
-        saved_upload_timeout = get_upload_timeout_minutes()
-        self.saved_rpm = saved_rpm if saved_rpm is not None else DEFAULT_REQUESTS_PER_MINUTE
-        self.saved_workers = saved_workers if saved_workers is not None else DEFAULT_SCAN_WORKERS
-        self.saved_upload_timeout = (
-            saved_upload_timeout if saved_upload_timeout is not None else DEFAULT_UPLOAD_TIMEOUT_MINUTES
-        )
+        self.saved_rpm = v if (v := get_requests_per_minute()) is not None else DEFAULT_REQUESTS_PER_MINUTE
+        self.saved_workers = v if (v := get_workers()) is not None else DEFAULT_SCAN_WORKERS
+        self.saved_upload_timeout = v if (v := get_upload_timeout_minutes()) is not None else DEFAULT_UPLOAD_TIMEOUT_MINUTES
         self.default_report_dir = str(Path.home())
 
         self._scanner: ScannerService | None = None

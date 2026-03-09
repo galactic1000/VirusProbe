@@ -194,23 +194,17 @@ def main() -> None:
         args.output = f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{report_format}"
 
     if args.requests_per_minute is None:
-        saved_rpm = get_requests_per_minute()
-        args.requests_per_minute = saved_rpm if saved_rpm is not None else DEFAULT_REQUESTS_PER_MINUTE
+        args.requests_per_minute = v if (v := get_requests_per_minute()) is not None else DEFAULT_REQUESTS_PER_MINUTE
     if args.requests_per_minute < 0:
         parser.error("--requests-per-minute must be >= 0")
     if args.upload_timeout is not None and not args.upload:
         parser.error("--upload-timeout requires --upload")
     if args.upload_timeout is None:
-        saved_upload_timeout = get_upload_timeout_minutes()
-        args.upload_timeout = saved_upload_timeout if saved_upload_timeout is not None else DEFAULT_UPLOAD_TIMEOUT_MINUTES
+        args.upload_timeout = v if (v := get_upload_timeout_minutes()) is not None else DEFAULT_UPLOAD_TIMEOUT_MINUTES
     if args.upload_timeout < 0:
         parser.error("--upload-timeout must be >= 0")
     if args.workers is None:
-        saved_workers = get_workers()
-        if saved_workers is not None:
-            args.workers = saved_workers
-        else:
-            args.workers = args.requests_per_minute if args.requests_per_minute > 0 else DEFAULT_SCAN_WORKERS
+        args.workers = v if (v := get_workers()) is not None else (args.requests_per_minute if args.requests_per_minute > 0 else DEFAULT_SCAN_WORKERS)
     if args.workers < 1:
         parser.error("--workers must be >= 1")
 

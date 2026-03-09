@@ -93,8 +93,7 @@ class ScanCache:
             hash_bytes = bytes.fromhex(file_hash)
             cutoff_ts = self._cutoff_ts()
             cursor.execute("SELECT stats, timestamp FROM scans WHERE hash = ?", (hash_bytes,))
-            row = cursor.fetchone()
-            if row:
+            if row := cursor.fetchone():
                 stats_blob, timestamp = row
                 if int(timestamp) >= cutoff_ts:
                     stats = struct.unpack(">4I", stats_blob)

@@ -43,29 +43,25 @@ jobs:
         with:
           python-version: '3.x'
           cache: 'pip'
-          cache-dependency-path: |
-            requirements-cli.txt
-            requirements-gui.txt
-            .github/requirements-build.txt
+          cache-dependency-path: '**/requirements*.txt'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-cli.txt
-          pip install -r requirements-gui.txt
-          pip install -r .github/requirements-build.txt
+          pip install -r requirements-cli.txt -r requirements-gui.txt -r .github/requirements-build.txt
 
       - name: Build CLI executable
         run: >-
           pyinstaller --onefile --name ${{ matrix.cli_name }}
-          ${{ matrix.strip }} ${{ matrix.cli_icon }} cli.py
+          ${{ matrix.strip }} ${{ matrix.cli_icon }}
+          cli.py
 
       - name: Build GUI executable
         run: >-
           pyinstaller ${{ matrix.gui_mode }} --name VirusProbe-GUI --windowed
-          ${{ matrix.strip }} --additional-hooks-dir=.github/pyinstaller_hooks
+          ${{ matrix.strip }} ${{ matrix.gui_icon }}
+          --additional-hooks-dir=.github/pyinstaller_hooks
           --add-data "gui/assets/icon.png:gui/assets"
-          ${{ matrix.gui_icon }}
           --exclude-module PIL._avif --exclude-module PIL._webp
           gui.py
 
