@@ -238,7 +238,7 @@ def test_upload_filter_blocks_upload_and_returns_undetected(tmp_path) -> None:
             ),
             patch.object(service, "_upload_and_scan_async", AsyncMock()) as upload_mock,
         ):
-            result = asyncio.run(service._scan_file_live_async(fake_client, limiter, str(sample), _hash_file(service, str(sample))))
+            result = asyncio.run(service._scan_file_live_async(fake_client, limiter, str(sample), _hash_file(service, str(sample)))) # type: ignore
     finally:
         service.close()
     assert result["status"] == "undetected"
