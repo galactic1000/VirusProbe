@@ -174,7 +174,7 @@ VirusProbe-CLI -d /path/to/folder --upload --upload-filter "*.exe" "*.dll"
 - **Add Item**: Add files or SHA-256 hash(es) (one per line)
 - **Drag-and-drop**: Accepts files directly
 - **Advanced Settings**: Configure theme (auto/light/dark), workers (1-50), rate limit, upload mode (never/manual/auto), and upload timeout. Setting rate limit or upload timeout to `0` disables that limit.
-  - Manual mode: `Upload` button appears in toolbar - select `Undetected` rows and click to upload
+  - Manual mode: `Upload` button appears in toolbar — click to upload all undetected files, or select specific rows to upload only those
   - Auto mode: Undetected files upload automatically during scan
   - Settings persist to `.env`
 - **Scan/Cancel**: `Scan` button becomes `Cancel` during active scans
