@@ -19,6 +19,7 @@ from ttkbootstrap.widgets import ToastNotification
 from common import CACHE_DB, THEME_AUTO, UPLOAD_AUTO, get_theme_mode
 from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
 
+from .os_detect import IS_WINDOWS, IS_MACOS, IS_LINUX
 from .style import apply_theme, apply_titlebar_theme, theme_name
 from .dialogs import (
     show_add_hashes_dialog,
@@ -542,11 +543,11 @@ class VirusProbeGUI(ttk.Window):
 
     def _open_path(self, path: str) -> None:
         try:
-            if os.name == "nt":
+            if IS_WINDOWS:
                 os.startfile(path)  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
+            elif IS_MACOS:
                 subprocess.run(["open", path], check=False)
-            else:
+            elif IS_LINUX:
                 subprocess.run(["xdg-open", path], check=False)
         except Exception as exc:
             self._show_error("Open Error", str(exc))

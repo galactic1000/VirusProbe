@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import vt
@@ -148,20 +149,11 @@ def test_scan_hash_returns_success_when_cache_save_fails(tmp_path) -> None:
     service = _service(tmp_path)
 
     class _FakeClient:
-        async def get_json_async(self, path: str) -> dict:
+        async def get_object_async(self, path: str):
             assert path == f"/files/{'a' * 64}"
-            return {
-                "data": {
-                    "attributes": {
-                        "last_analysis_stats": {
-                            "malicious": 0,
-                            "suspicious": 3,
-                            "harmless": 10,
-                            "undetected": 2,
-                        }
-                    }
-                }
-            }
+            obj = SimpleNamespace()
+            obj.last_analysis_stats = {"malicious": 0, "suspicious": 3, "harmless": 10, "undetected": 2}
+            return obj
 
     try:
         with (
@@ -217,20 +209,11 @@ def test_cache_init_failure_disables_cache_but_live_lookup_still_works(tmp_path)
     service = ScannerService(api_key="test", cache_db=tmp_path / "vt_cache.db")
 
     class _FakeClient:
-        async def get_json_async(self, path: str) -> dict:
+        async def get_object_async(self, path: str):
             assert path == f"/files/{'a' * 64}"
-            return {
-                "data": {
-                    "attributes": {
-                        "last_analysis_stats": {
-                            "malicious": 1,
-                            "suspicious": 0,
-                            "harmless": 10,
-                            "undetected": 0,
-                        }
-                    }
-                }
-            }
+            obj = SimpleNamespace()
+            obj.last_analysis_stats = {"malicious": 1, "suspicious": 0, "harmless": 10, "undetected": 0}
+            return obj
 
     try:
         with patch.object(service._cache, "init", side_effect=RuntimeError("cache broken")):

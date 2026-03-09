@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -170,19 +171,16 @@ def test_poll_analysis_uses_rate_limiter_for_each_poll(tmp_path) -> None:
         def __init__(self) -> None:
             self.calls = 0
 
-        async def get_json_async(self, path: str) -> dict:
+        async def get_object_async(self, path: str):
             assert path == "/analyses/analysis-id"
             self.calls += 1
+            obj = SimpleNamespace()
             if self.calls == 1:
-                return {"data": {"attributes": {"status": "running"}}}
-            return {
-                "data": {
-                    "attributes": {
-                        "status": "completed",
-                        "stats": {"malicious": 3, "suspicious": 0, "harmless": 12, "undetected": 1},
-                    }
-                }
-            }
+                obj.status = "running"
+            else:
+                obj.status = "completed"
+                obj.stats = {"malicious": 3, "suspicious": 0, "harmless": 12, "undetected": 1}
+            return obj
 
     fake_client = _FakeClient()
     limiter = _FakeRateLimiter()

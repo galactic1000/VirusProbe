@@ -12,18 +12,19 @@ def build_summary(results: list[dict]) -> dict[str, int]:
     clean = suspicious = malicious = undetected = errors = cancelled = 0
     for r in results:
         tl = r.get("threat_level")
-        if tl == "Error":
-            errors += 1
-        elif tl == "Cancelled":
-            cancelled += 1
-        elif tl == "Undetected":
-            undetected += 1
-        elif tl == "Malicious":
-            malicious += 1
-        elif tl == "Suspicious":
-            suspicious += 1
-        else:
-            clean += 1
+        match tl:
+            case "Error":
+                errors += 1
+            case "Cancelled":
+                cancelled += 1
+            case "Undetected":
+                undetected += 1
+            case "Malicious":
+                malicious += 1
+            case "Suspicious":
+                suspicious += 1
+            case _:
+                clean += 1
     return {
         "total": len(results),
         "clean": clean,

@@ -9,9 +9,9 @@ import tkinter as tk
 
 from ttkbootstrap import Style
 
-_IS_WINDOWS = sys.platform.startswith("win")
+from .os_detect import IS_WINDOWS, IS_MACOS, IS_LINUX
 
-if _IS_WINDOWS:
+if IS_WINDOWS:
     import ctypes
     import winreg
 
@@ -59,11 +59,11 @@ def _apply_bootstrap_theme(theme_mode: str) -> bool:
 
 
 def _system_prefers_dark_mode() -> bool:
-    if _IS_WINDOWS:
+    if IS_WINDOWS:
         return _windows_prefers_dark_mode()
-    if sys.platform == "darwin":
+    elif IS_MACOS:
         return _macos_prefers_dark_mode()
-    if sys.platform.startswith("linux"):
+    elif IS_LINUX:
         return _linux_prefers_dark_mode()
     return False
 
@@ -124,7 +124,7 @@ def _linux_prefers_dark_mode() -> bool:
 
 
 def _apply_windows_titlebar_mode(root: tk.Misc, dark_mode: bool) -> None:
-    if not _IS_WINDOWS:
+    if not IS_WINDOWS:
         return
     try:
         root.update_idletasks()

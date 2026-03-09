@@ -95,10 +95,9 @@ async def poll_analysis_async(
         if deadline is not None and time.monotonic() > deadline:
             raise TimeoutError(f"VirusTotal analysis timed out after {timeout_minutes} minute(s)")
         await rate_limiter.acquire()
-        raw = await client.get_json_async(f"/analyses/{analysis_id}")
-        status = raw.get("data", {}).get("attributes", {}).get("status", "")
-        if status == "completed":
-            stats = raw["data"]["attributes"]["stats"]
+        obj = await client.get_object_async(f"/analyses/{analysis_id}")
+        if obj.status == "completed":
+            stats = obj.stats
             return (
                 int(stats.get("malicious", 0)),
                 int(stats.get("suspicious", 0)),

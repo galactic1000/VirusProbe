@@ -143,7 +143,7 @@ class ScannerService:
         return f"SHA-256 hash: {value}"
 
     @staticmethod
-    def _error_result(item: str, item_type: str, message: str, file_hash: str = "") -> dict[str, Any]:
+    def _base_result(item: str, item_type: str, file_hash: str, threat_level: str, status: str, message: str) -> dict[str, Any]:
         return {
             "item": item,
             "type": item_type,
@@ -152,29 +152,20 @@ class ScannerService:
             "suspicious": 0,
             "harmless": 0,
             "undetected": 0,
-            "threat_level": "Error",
-            "status": "error",
+            "threat_level": threat_level,
+            "status": status,
             "message": message,
             "was_cached": False,
             "was_uploaded": False,
         }
 
     @staticmethod
+    def _error_result(item: str, item_type: str, message: str, file_hash: str = "") -> dict[str, Any]:
+        return ScannerService._base_result(item, item_type, file_hash, "Error", "error", message)
+
+    @staticmethod
     def _cancelled_result(item: str, item_type: str, file_hash: str = "") -> dict[str, Any]:
-        return {
-            "item": item,
-            "type": item_type,
-            "file_hash": file_hash,
-            "malicious": 0,
-            "suspicious": 0,
-            "harmless": 0,
-            "undetected": 0,
-            "threat_level": "Cancelled",
-            "status": "cancelled",
-            "message": "Cancelled by user",
-            "was_cached": False,
-            "was_uploaded": False,
-        }
+        return ScannerService._base_result(item, item_type, file_hash, "Cancelled", "cancelled", "Cancelled by user")
 
     @classmethod
     def _hash_error(cls, value: object, message: str, file_hash: str = "") -> dict[str, Any]:
@@ -182,20 +173,7 @@ class ScannerService:
 
     @classmethod
     def _not_found_result(cls, normalized_hash: str) -> dict[str, Any]:
-        return {
-            "item": cls._hash_item(normalized_hash),
-            "type": "hash",
-            "file_hash": normalized_hash,
-            "malicious": 0,
-            "suspicious": 0,
-            "harmless": 0,
-            "undetected": 0,
-            "threat_level": "Undetected",
-            "status": "undetected",
-            "message": "No VirusTotal record found",
-            "was_cached": False,
-            "was_uploaded": False,
-        }
+        return cls._base_result(cls._hash_item(normalized_hash), "hash", normalized_hash, "Undetected", "undetected", "No VirusTotal record found")
 
     @staticmethod
     def is_sha256(value: str) -> bool:
@@ -210,10 +188,8 @@ class ScannerService:
         return "Clean"
 
     @staticmethod
-    def _extract_stats(response: dict[str, Any]) -> tuple[int, int, int, int]:
-        stats: Any = None
-        if isinstance(response, dict):
-            stats = response.get("data", {}).get("attributes", {}).get("last_analysis_stats")
+    def _extract_stats(obj: vt.Object) -> tuple[int, int, int, int]:
+        stats = obj.last_analysis_stats
         if not isinstance(stats, dict):
             raise ValueError("VirusTotal response missing analysis stats")
         return (
@@ -316,8 +292,8 @@ class ScannerService:
             if cached is not None:
                 return cached, True
         await rate_limiter.acquire()
-        response_json = await client.get_json_async(f"/files/{file_hash}")
-        stats = self._extract_stats(response_json)
+        obj = await client.get_object_async(f"/files/{file_hash}")
+        stats = self._extract_stats(obj)
         try:
             await self._cache_save_async(file_hash, stats)
         except Exception:

@@ -86,15 +86,17 @@ def print_banner() -> None:
 
 
 def _verdict_color(threat_level: str) -> str:
-    if threat_level == "Cancelled":
-        return Fore.MAGENTA
-    if threat_level == "Malicious":
-        return Fore.RED
-    if threat_level == "Suspicious":
-        return Fore.YELLOW
-    if threat_level == "Undetected":
-        return Fore.CYAN
-    return Fore.GREEN
+    match threat_level:
+        case "Cancelled":
+            return Fore.MAGENTA
+        case "Malicious":
+            return Fore.RED
+        case "Suspicious":
+            return Fore.YELLOW
+        case "Undetected":
+            return Fore.CYAN
+        case _:
+            return Fore.GREEN
 
 
 def _item_label(result: dict) -> str:
