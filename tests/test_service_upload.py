@@ -56,7 +56,7 @@ def test_scan_file_not_found_with_upload_enabled_triggers_upload(tmp_path) -> No
             ),
             patch.object(service, "_upload_and_scan_async", AsyncMock(return_value=expected_result)) as upload_mock,
         ):
-            result = asyncio.run(service._scan_file_live_async(fake_client, limiter, str(sample), expected_hash))
+            result = asyncio.run(service._scan_file_live_async(fake_client, limiter, str(sample), expected_hash)) # type: ignore
     finally:
         service.close()
     assert result["status"] == "ok"
@@ -74,7 +74,7 @@ def test_upload_and_scan_success_sets_uploaded_and_caches(tmp_path) -> None:
             service_upload.upload_and_scan_async(
                 upload_file_fn=AsyncMock(return_value="analysis-id"),
                 poll_analysis_fn=AsyncMock(return_value=(2, 1, 30, 4)),
-                cache_save=service._cache.save,
+                cache_save=service._cache.save, # type: ignore
                 classify_threat=service.classify_threat,
                 error_result=service._error_result,
                 cancelled_result=service._cancelled_result,
@@ -98,7 +98,7 @@ def test_upload_and_scan_failure_returns_error(tmp_path) -> None:
             service_upload.upload_and_scan_async(
                 upload_file_fn=AsyncMock(side_effect=RuntimeError("boom")),
                 poll_analysis_fn=AsyncMock(),
-                cache_save=lambda *_: None,
+                cache_save=lambda *_: None, # type: ignore
                 classify_threat=service.classify_threat,
                 error_result=service._error_result,
                 cancelled_result=service._cancelled_result,
@@ -148,7 +148,7 @@ def test_upload_and_scan_malformed_poll_response_returns_error(tmp_path) -> None
             service_upload.upload_and_scan_async(
                 upload_file_fn=AsyncMock(return_value="analysis-id"),
                 poll_analysis_fn=AsyncMock(side_effect=KeyError("stats")),
-                cache_save=lambda *_: None,
+                cache_save=lambda *_: None, # pyright: ignore[reportArgumentType]
                 classify_threat=service.classify_threat,
                 error_result=service._error_result,
                 cancelled_result=service._cancelled_result,
@@ -187,7 +187,7 @@ def test_poll_analysis_uses_rate_limiter_for_each_poll(tmp_path) -> None:
     fake_client = _FakeClient()
     limiter = _FakeRateLimiter()
     with patch("common.service_upload.sleep_with_cancel_async", AsyncMock(return_value=None)):
-        stats = asyncio.run(service_upload.poll_analysis_async(fake_client, limiter, 4, 20, "analysis-id"))
+        stats = asyncio.run(service_upload.poll_analysis_async(fake_client, limiter, 4, 20, "analysis-id")) # type: ignore
     assert stats == (3, 0, 12, 1)
     assert limiter.acquire.await_count == 2
 
@@ -206,11 +206,11 @@ def test_poll_analysis_uses_configured_timeout(tmp_path) -> None:
             patch("common.service_upload.upload_file_async", AsyncMock(return_value="analysis-id")),
             patch("common.service_upload.poll_analysis_async", AsyncMock(return_value=(0, 0, 1, 2))) as poll_mock,
         ):
-            asyncio.run(service._upload_and_scan_async(fake_client, limiter, str(sample), file_hash))
+            asyncio.run(service._upload_and_scan_async(fake_client, limiter, str(sample), file_hash)) # type: ignore
     finally:
         service.close()
 
-    assert poll_mock.await_args.args[3] == 42
+    assert poll_mock.await_args.args[3] == 42 # type: ignore
 
 
 def test_poll_interval_is_tied_to_requests_per_minute(tmp_path) -> None:
@@ -280,7 +280,7 @@ def test_upload_filter_allows_upload_when_matched(tmp_path) -> None:
             ),
             patch.object(service, "_upload_and_scan_async", AsyncMock(return_value=expected_result)) as upload_mock,
         ):
-            result = asyncio.run(service._scan_file_live_async(fake_client, limiter, str(sample), expected_hash))
+            result = asyncio.run(service._scan_file_live_async(fake_client, limiter, str(sample), expected_hash)) # type: ignore
     finally:
         service.close()
     assert result["status"] == "ok"
@@ -305,7 +305,7 @@ def test_upload_file_small_path_rate_limited_once(tmp_path) -> None:
             return None
 
     limiter = _FakeRateLimiter()
-    analysis_id = asyncio.run(service_upload.upload_file_async(_FakeClient(), limiter, str(sample)))
+    analysis_id = asyncio.run(service_upload.upload_file_async(_FakeClient(), limiter, str(sample))) # type: ignore
     assert analysis_id == "analysis-small"
     assert limiter.acquire.await_count == 1
 
@@ -332,7 +332,7 @@ def test_upload_file_large_path_rate_limited_for_both_calls(tmp_path) -> None:
 
     limiter = _FakeRateLimiter()
     with patch("common.service_upload._UPLOAD_SIZE_THRESHOLD", 1):
-        analysis_id = asyncio.run(service_upload.upload_file_async(_FakeClient(), limiter, str(sample)))
+        analysis_id = asyncio.run(service_upload.upload_file_async(_FakeClient(), limiter, str(sample))) # type: ignore
     assert analysis_id == "analysis-large"
     assert limiter.acquire.await_count == 2
 
@@ -342,4 +342,4 @@ def test_upload_file_rejects_over_650mb(tmp_path) -> None:
     sample.write_bytes(b"x")
     with patch("common.service_upload._UPLOAD_MAX_SIZE", 0):
         with pytest.raises(ValueError, match="max 650 MB"):
-            asyncio.run(service_upload.upload_file_async(object(), _FakeRateLimiter(), str(sample)))
+            asyncio.run(service_upload.upload_file_async(object(), _FakeRateLimiter(), str(sample))) # type: ignore

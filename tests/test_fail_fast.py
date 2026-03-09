@@ -63,7 +63,7 @@ def test_upload_quota_apierror_raises(tmp_path) -> None:
             service_upload.upload_and_scan_async(
                 upload_file_fn=_upload_file,
                 poll_analysis_fn=_poll_analysis,
-                cache_save=lambda *_: None,
+                cache_save=lambda *_: None, # type: ignore
                 classify_threat=lambda malicious, suspicious: "Clean",
                 error_result=lambda item, item_type, message, file_hash="": {
                     "item": item,
@@ -99,7 +99,7 @@ def test_upload_wrong_credentials_apierror_raises(tmp_path) -> None:
             service_upload.upload_and_scan_async(
                 upload_file_fn=_upload_file,
                 poll_analysis_fn=_poll_analysis,
-                cache_save=lambda *_: None,
+                cache_save=lambda *_: None, # type: ignore
                 classify_threat=lambda malicious, suspicious: "Clean",
                 error_result=lambda item, item_type, message, file_hash="": {
                     "item": item,
