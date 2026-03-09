@@ -1,6 +1,6 @@
 # VirusProbe
 
-An efficient malware scanning tool powered by VirusTotal. Scan files, directories, or SHA-256 file hashes with both CLI and GUI interfaces. Features intelligent caching, concurrent scanning, and automatic file upload for undetected samples.
+An efficient malware scanning tool powered by VirusTotal. Scan files, directories, or SHA-256 file hashes via a command-line tool or desktop app. Features intelligent caching, concurrent scanning, and automatic file upload for undetected samples.
 
 ## Requirements
 
