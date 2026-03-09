@@ -80,6 +80,7 @@ class VirusProbeGUI(ttk.Window):
         self.cancel_event = threading.Event()
         self.is_scanning = False
         self.is_uploading = False
+        self.is_clearing_cache = False
         self.is_closing = False
         self.scan_total = 0
 
@@ -123,19 +124,21 @@ class VirusProbeGUI(ttk.Window):
         self._update_api_key_status()
 
     def on_clear_cache(self) -> None:
-        if self.is_scanning or self.is_uploading:
+        if self.is_scanning or self.is_uploading or self.is_clearing_cache:
             return
         result = Messagebox.yesno(
             "Clear local SQLite cache now?",
             title="Clear Cache",
             parent=self,
             buttons=["No:secondary", "Yes:primary"],
-            default="Yes",
+            default="No",
         )
         if result != "Yes":
             return
 
-        self.view.progress_var.set("Clearing cache...")
+        self.is_clearing_cache = True
+        self._set_progress_text("Clearing cache...")
+        self._update_upload_action_visibility()
         future = self._async_runner.submit(self.model.clear_cache_async())
         future.add_done_callback(self._on_clear_cache_done)
 
@@ -214,12 +217,15 @@ class VirusProbeGUI(ttk.Window):
             self.is_closing = True
             self._request_cancel("Cancelling upload before close...")
             return
+        if self.is_clearing_cache:
+            self.is_closing = True
+            return
         self.model.close()
         self._async_runner.close()
         self.destroy()
 
     def _start_scan(self) -> None:
-        if self.is_scanning or self.is_uploading:
+        if self.is_scanning or self.is_uploading or self.is_clearing_cache:
             return
         if not self.view.item_count():
             self._show_info("No Items", "Add at least one file or SHA-256 hash to scan.")
@@ -241,7 +247,7 @@ class VirusProbeGUI(ttk.Window):
         self._begin_busy_state(self.on_scan)
         self.is_scanning = True
         self.view.report_button.configure(state="disabled")
-        self.view.progress_var.set("Scanning...")
+        self._set_progress_text("Scanning...")
         future = self._async_runner.submit(self._run_scan_async())
         future.add_done_callback(self._on_scan_done)
 
@@ -250,7 +256,7 @@ class VirusProbeGUI(ttk.Window):
             if iid is not None:
                 self._safe_after(self.view.set_row_status, iid, self.model.result_status(result))
             self.model.upsert_result(result)
-            self._safe_after(lambda: self.view.progress_var.set("Scanning..."))
+            self._safe_after(self._set_progress_text, "Scanning...")
             self._safe_after(self.view.set_progress, completed, total)
 
         scanner = await self.model.acquire_scanner_async(
@@ -267,25 +273,24 @@ class VirusProbeGUI(ttk.Window):
         )
 
     def _start_upload_selected(self) -> None:
-        if self.is_scanning or self.is_uploading:
+        if self.is_scanning or self.is_uploading or self.is_clearing_cache:
             return
         if not self.api_key:
             self._show_error("Missing API Key", "Set an API key before uploading.")
             return
 
-        file_entries = self.view.selected_undetected_files()
+        file_entries = self.view.undetected_files(selected_only=True) or self.view.undetected_files()
         if not file_entries:
-            self._show_info("No Upload Selection", "Select one or more 'Undetected' file rows to upload.")
             return
 
-        entries = [(iid, fp, "") for iid, fp in file_entries]
+        entries = [(iid, fp, self.model.get_file_hash(fp)) for iid, fp in file_entries]
         self.active_upload_entries = entries
 
         self._set_entry_rows_status(entries, "Uploading...")
         self._begin_busy_state(self._cancel_upload)
         self.is_uploading = True
         self.view.set_progress(0, len(entries))
-        self.view.progress_var.set("Uploading...")
+        self._set_progress_text("Uploading...")
         future = self._async_runner.submit(self._run_upload_async(entries))
         future.add_done_callback(self._on_upload_done)
 
@@ -309,7 +314,7 @@ class VirusProbeGUI(ttk.Window):
                 self._safe_after(self.view.set_row_status, iid, self.model.result_status(result))
             self.model.upsert_result(result)
             self._safe_after(self.view.set_progress, c, total)
-            self._safe_after(lambda: self.view.progress_var.set("Uploading..."))
+            self._safe_after(self._set_progress_text, "Uploading...")
 
         scanner = await self.model.acquire_scanner_async(
             requests_per_minute=current_rpm,
@@ -330,14 +335,31 @@ class VirusProbeGUI(ttk.Window):
             deleted = future.result()
         except Exception as exc:
             self._safe_after(lambda err=str(exc): self._show_error("Cache Error", err))
-            self._safe_after(lambda: self.view.progress_var.set("Cache clear failed"))
+            self._safe_after(self._finish_clear_cache_error)
             return
         self._safe_after(self._finish_clear_cache, deleted)
 
     def _finish_clear_cache(self, deleted: int) -> None:
-        label = f"{deleted} entr{'y' if deleted == 1 else 'ies'}"
-        Messagebox.show_info(f"Cleared SQLite cache ({label}).", title="Cache Cleared", parent=self)
-        self.view.progress_var.set(f"Cache cleared ({label})")
+        try:
+            label = f"{deleted} entr{'y' if deleted == 1 else 'ies'}"
+            Messagebox.show_info(f"Cleared SQLite cache ({label}).", title="Cache Cleared", parent=self)
+            self._set_progress_text(f"Cache cleared ({label})")
+        finally:
+            self.is_clearing_cache = False
+            self._update_upload_action_visibility()
+            if self.is_closing:
+                self.model.close()
+                self._async_runner.close()
+                self.destroy()
+
+    def _finish_clear_cache_error(self) -> None:
+        self.is_clearing_cache = False
+        self._set_progress_text("Cache clear failed")
+        self._update_upload_action_visibility()
+        if self.is_closing:
+            self.model.close()
+            self._async_runner.close()
+            self.destroy()
 
     def _on_scan_done(self, future) -> None:
         try:
@@ -356,10 +378,12 @@ class VirusProbeGUI(ttk.Window):
 
                 if run_result.cancelled:
                     self.view.mark_rows_status_if_current(run_result.entry_iids, "Scanning...", "Cancelled")
-                    self.view.progress_var.set(f"Scan cancelled ({run_result.completed}/{run_result.total})")
+                    self._set_progress_text(
+                        self._status_with_queued_suffix(f"Scan cancelled ({run_result.completed}/{run_result.total})")
+                    )
                     self.view.set_progress(run_result.completed, run_result.total)
                 else:
-                    self.view.progress_var.set("Scan complete")
+                    self._set_progress_text(self._status_with_queued_suffix("Scan complete"))
                     self.view.set_progress(run_result.total, run_result.total)
                     self._show_toast("Scan Complete", f"Processed {run_result.total} item(s).", "success")
                 return
@@ -367,7 +391,7 @@ class VirusProbeGUI(ttk.Window):
             if self.model.has_results():
                 self.view.report_button.configure(state="normal")
             self._show_error("Scan Error", str(exc))
-            self.view.progress_var.set("Scan failed")
+            self._set_progress_text(self._status_with_queued_suffix("Scan failed"))
             if not self.is_closing:
                 self._show_toast("Scan Failed", str(exc), "danger", self._ERROR_TOAST_DURATION)
         finally:
@@ -399,17 +423,17 @@ class VirusProbeGUI(ttk.Window):
                 assert error_count is not None
                 if run_result.cancelled:
                     self.view.mark_rows_status_if_current(run_result.entry_iids, "Uploading...", "Cancelled")
-                    self.view.progress_var.set("Upload cancelled")
+                    self._set_progress_text(self._status_with_queued_suffix("Upload cancelled"))
                 else:
                     progress_text, toast_title, toast_message, toast_style = upload_completion_feedback(
                         total, error_count
                     )
-                    self.view.progress_var.set(progress_text)
+                    self._set_progress_text(self._status_with_queued_suffix(progress_text))
                     self._show_toast(toast_title, toast_message, toast_style)
                 return
 
             self._show_error("Upload Error", str(exc))
-            self.view.progress_var.set("Upload failed")
+            self._set_progress_text(self._status_with_queued_suffix("Upload failed"))
             self.view.mark_rows_status_if_current(
                 [iid for iid, _, _ in self.active_upload_entries],
                 "Uploading...",
@@ -428,7 +452,7 @@ class VirusProbeGUI(ttk.Window):
 
     def _add_item(self, item_type: str, value: str) -> bool:
         added = self.view.add_item(item_type, value)
-        if added and not (self.is_scanning or self.is_uploading):
+        if added and not (self.is_scanning or self.is_uploading or self.is_clearing_cache):
             self._set_queued_count_text()
         return added
 
@@ -446,7 +470,7 @@ class VirusProbeGUI(ttk.Window):
         self.presenter.update_upload_action_visibility(
             upload_mode=self.model.upload_mode,
             has_uploadable=self.view.has_uploadable_undetected(),
-            busy=(self.is_scanning or self.is_uploading),
+            busy=(self.is_scanning or self.is_uploading or self.is_clearing_cache),
         )
 
     def _show_info(self, title: str, text: str) -> None:
@@ -499,7 +523,20 @@ class VirusProbeGUI(ttk.Window):
         self._update_upload_action_visibility()
 
     def _set_queued_count_text(self) -> None:
-        self.presenter.set_queued_count(self.view.item_count())
+        self.presenter.set_queued_count(self._queued_count())
+
+    def _queued_count(self) -> int:
+        return len(self.view.collect_pending_entries())
+
+    def _status_with_queued_suffix(self, text: str) -> str:
+        queued = self._queued_count()
+        if queued <= 0:
+            return text
+        return f"{text} ({queued} queued)"
+
+    def _set_progress_text(self, text: str) -> None:
+        if self.view.progress_var.get() != text:
+            self.view.progress_var.set(text)
 
     def _restore_buttons(self) -> None:
         if not self.is_closing:

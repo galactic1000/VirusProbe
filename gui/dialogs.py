@@ -5,7 +5,7 @@ from __future__ import annotations
 import textwrap
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 import tkinter as tk
 from tkinter import filedialog
 

@@ -56,7 +56,7 @@ def test_scan_file_not_found_with_upload_enabled_triggers_upload(tmp_path) -> No
             ),
             patch.object(service, "_upload_and_scan_async", AsyncMock(return_value=expected_result)) as upload_mock,
         ):
-            result = asyncio.run(service._scan_file_async(fake_client, limiter, str(sample)))
+            result = asyncio.run(service._scan_file_live_async(fake_client, limiter, str(sample), expected_hash))
     finally:
         service.close()
     assert result["status"] == "ok"
@@ -215,8 +215,8 @@ def test_poll_analysis_uses_configured_timeout(tmp_path) -> None:
 
 def test_poll_interval_is_tied_to_requests_per_minute(tmp_path) -> None:
     _ = tmp_path
-    assert service_upload.poll_interval_seconds(4) == 15
-    assert service_upload.poll_interval_seconds(2) == 30
+    assert service_upload.poll_interval_seconds(4) == 30
+    assert service_upload.poll_interval_seconds(2) == 60
     assert service_upload.poll_interval_seconds(0) == 15
 
 
@@ -238,7 +238,7 @@ def test_upload_filter_blocks_upload_and_returns_undetected(tmp_path) -> None:
             ),
             patch.object(service, "_upload_and_scan_async", AsyncMock()) as upload_mock,
         ):
-            result = asyncio.run(service._scan_file_async(fake_client, limiter, str(sample)))
+            result = asyncio.run(service._scan_file_live_async(fake_client, limiter, str(sample), _hash_file(service, str(sample))))
     finally:
         service.close()
     assert result["status"] == "undetected"
@@ -280,7 +280,7 @@ def test_upload_filter_allows_upload_when_matched(tmp_path) -> None:
             ),
             patch.object(service, "_upload_and_scan_async", AsyncMock(return_value=expected_result)) as upload_mock,
         ):
-            result = asyncio.run(service._scan_file_async(fake_client, limiter, str(sample)))
+            result = asyncio.run(service._scan_file_live_async(fake_client, limiter, str(sample), expected_hash))
     finally:
         service.close()
     assert result["status"] == "ok"

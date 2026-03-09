@@ -24,9 +24,11 @@ class _FakeRateLimiter:
 def test_scan_hash_invalid_format_returns_error(tmp_path) -> None:
     service = _service(tmp_path)
     try:
-        result = asyncio.run(service._scan_hash_async(object(), _FakeRateLimiter(), "not-a-hash"))
+        result, unresolved = asyncio.run(service._prepare_hash_scan_async("not-a-hash"))
     finally:
         service.close()
+    assert unresolved is None
+    assert result is not None
     assert result["status"] == "error"
     assert result["type"] == "hash"
     assert "Invalid SHA-256" in result["message"]
@@ -38,7 +40,7 @@ def test_scan_hash_uses_mocked_vt_response(tmp_path) -> None:
         with patch.object(
             service, "_query_virustotal_async", AsyncMock(return_value=((12, 1, 5, 7), False))
         ):
-            result = asyncio.run(service._scan_hash_async(object(), _FakeRateLimiter(), "a" * 64))
+            result = asyncio.run(service._scan_hash_live_async(object(), _FakeRateLimiter(), "a" * 64))
     finally:
         service.close()
     assert result["status"] == "ok"
@@ -55,7 +57,7 @@ def test_scan_hash_not_found_apierror_maps_to_undetected(tmp_path) -> None:
             "_query_virustotal_async",
             AsyncMock(side_effect=vt.APIError("NotFoundError", "not found")),
         ):
-            result = asyncio.run(service._scan_hash_async(object(), _FakeRateLimiter(), "c" * 64))
+            result = asyncio.run(service._scan_hash_live_async(object(), _FakeRateLimiter(), "c" * 64))
     finally:
         service.close()
     assert result["status"] == "undetected"
@@ -70,7 +72,7 @@ def test_scan_hash_other_apierror_maps_to_error(tmp_path) -> None:
             "_query_virustotal_async",
             AsyncMock(side_effect=vt.APIError("InvalidArgumentError", "bad hash")),
         ):
-            result = asyncio.run(service._scan_hash_async(object(), _FakeRateLimiter(), "d" * 64))
+            result = asyncio.run(service._scan_hash_live_async(object(), _FakeRateLimiter(), "d" * 64))
     finally:
         service.close()
     assert result["status"] == "error"
@@ -82,7 +84,7 @@ def test_scan_hash_malformed_response_maps_to_undetected(tmp_path) -> None:
     service = _service(tmp_path)
     try:
         with patch.object(service, "_query_virustotal_async", AsyncMock(side_effect=ValueError("bad response"))):
-            result = asyncio.run(service._scan_hash_async(object(), _FakeRateLimiter(), "e" * 64))
+            result = asyncio.run(service._scan_hash_live_async(object(), _FakeRateLimiter(), "e" * 64))
     finally:
         service.close()
     assert result["status"] == "undetected"
@@ -170,7 +172,7 @@ def test_scan_hash_returns_success_when_cache_save_fails(tmp_path) -> None:
                 AsyncMock(side_effect=sqlite3.OperationalError("disk full")),
             ),
         ):
-            result = asyncio.run(service._scan_hash_async(_FakeClient(), _FakeRateLimiter(), "a" * 64))
+            result = asyncio.run(service._scan_hash_live_async(_FakeClient(), _FakeRateLimiter(), "a" * 64))
     finally:
         service.close()
 
@@ -233,7 +235,7 @@ def test_cache_init_failure_disables_cache_but_live_lookup_still_works(tmp_path)
     try:
         with patch.object(service._cache, "init", side_effect=RuntimeError("cache broken")):
             service.init_cache()
-        result = asyncio.run(service._scan_hash_async(_FakeClient(), _FakeRateLimiter(), "a" * 64))
+        result = asyncio.run(service._scan_hash_live_async(_FakeClient(), _FakeRateLimiter(), "a" * 64))
     finally:
         service.close()
 

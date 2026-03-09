@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import math
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +54,7 @@ async def upload_file_async(
             raise error
         raw = await response.json_async()
     finally:
-        f.close()
+        await asyncio.to_thread(f.close)
 
     return raw["data"]["id"]
 
@@ -77,7 +76,7 @@ async def sleep_with_cancel_async(seconds: float, cancel_event: threading.Event 
 def poll_interval_seconds(requests_per_minute: int) -> int:
     if requests_per_minute <= 0:
         return _MIN_POLL_INTERVAL
-    return max(_MIN_POLL_INTERVAL, int(math.ceil(60 / requests_per_minute)))
+    return max(_MIN_POLL_INTERVAL, int(math.ceil(120 / requests_per_minute)))
 
 
 async def poll_analysis_async(
@@ -112,7 +111,7 @@ async def poll_analysis_async(
 async def upload_and_scan_async(
     upload_file_fn: Callable[[str], Any],
     poll_analysis_fn: Callable[[str, threading.Event | None], Any],
-    cache_save: Callable[[str, tuple[int, int, int, int]], Any],
+    cache_save: Callable[[str, tuple[int, int, int, int]], Awaitable[None]],
     classify_threat: Callable[[int, int], str],
     error_result: Callable[[str, str, str, str], dict[str, Any]],
     cancelled_result: Callable[[str, str, str], dict[str, Any]],
@@ -133,9 +132,7 @@ async def upload_and_scan_async(
         return error_result(file_path, "file", f"Upload failed: {exc}", file_hash)
 
     try:
-        maybe_awaitable = cache_save(file_hash, (malicious, suspicious, harmless, undetected))
-        if inspect.isawaitable(maybe_awaitable):
-            await maybe_awaitable
+        await cache_save(file_hash, (malicious, suspicious, harmless, undetected))
     except Exception:
         pass
 

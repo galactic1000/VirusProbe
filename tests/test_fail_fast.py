@@ -24,7 +24,7 @@ def test_scan_hash_quota_apierror_raises(tmp_path) -> None:
             side_effect=vt.APIError("QuotaExceededError", "quota exceeded"),
         ):
             try:
-                asyncio.run(service._scan_hash_async(object(), object(), "d" * 64)) # type: ignore
+                asyncio.run(service._scan_hash_live_async(object(), object(), "d" * 64)) # type: ignore
                 assert False, "Expected QuotaExceededError to abort the scan"
             except vt.APIError as exc:
                 assert exc.code == "QuotaExceededError"
@@ -41,7 +41,7 @@ def test_scan_hash_wrong_credentials_apierror_raises(tmp_path) -> None:
             side_effect=vt.APIError("WrongCredentialsError", "bad api key"),
         ):
             try:
-                asyncio.run(service._scan_hash_async(object(), object(), "d" * 64)) # type: ignore
+                asyncio.run(service._scan_hash_live_async(object(), object(), "d" * 64)) # type: ignore
                 assert False, "Expected WrongCredentialsError to abort the scan"
             except vt.APIError as exc:
                 assert exc.code == "WrongCredentialsError"

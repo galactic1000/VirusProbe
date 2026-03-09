@@ -50,6 +50,7 @@ class AppModel:
 
         self._scanner: ScannerService | None = None
         self._scanner_lock = threading.Lock()
+        self._scanner_init_lock = asyncio.Lock()
         self._scanner_config: tuple[str, int, int, int, bool] | None = None
         self._results_lock = threading.Lock()
         self._last_results_by_key: dict[tuple[str, str], dict[str, Any]] = {}
@@ -101,30 +102,39 @@ class AppModel:
         with self._scanner_lock:
             if self._scanner is not None and self._scanner_config == desired:
                 return self._scanner
-            if self._scanner is not None:
-                with suppress(Exception):
-                    self._scanner.close()
-            scanner = ScannerService(
-                api_key=self.api_key or "",
-                cache_db=self.cache_db,
-                requests_per_minute=requests_per_minute,
-                max_workers=workers,
-                upload_timeout_minutes=upload_timeout,
-                upload_undetected=upload_undetected,
-            )
-        await scanner.init_cache_async()
-        with self._scanner_lock:
-            if self._scanner is not None and self._scanner_config == desired:
+        async with self._scanner_init_lock:
+            with self._scanner_lock:
+                if self._scanner is not None and self._scanner_config == desired:
+                    return self._scanner
+                if self._scanner is not None:
+                    with suppress(Exception):
+                        self._scanner.close()
+                    self._scanner = None
+                    self._scanner_config = None
+                scanner = ScannerService(
+                    api_key=self.api_key or "",
+                    cache_db=self.cache_db,
+                    requests_per_minute=requests_per_minute,
+                    max_workers=workers,
+                    upload_timeout_minutes=upload_timeout,
+                    upload_undetected=upload_undetected,
+                )
+            try:
+                await scanner.init_cache_async()
+            except Exception:
                 with suppress(Exception):
                     scanner.close()
-                return self._scanner
-            self._scanner = scanner
-            self._scanner_config = desired
-            return scanner
+                raise
+            with self._scanner_lock:
+                self._scanner = scanner
+                self._scanner_config = desired
+                return scanner
 
     async def clear_cache_async(self) -> int:
-        if self._scanner is not None:
-            return await self._scanner.clear_cache_async()
+        with self._scanner_lock:
+            scanner = self._scanner
+        if scanner is not None:
+            return await scanner.clear_cache_async()
         service = ScannerService(api_key=self.api_key or "", cache_db=self.cache_db)
         try:
             return await service.clear_cache_async()
@@ -142,6 +152,11 @@ class AppModel:
         with self._results_lock:
             key = (str(result.get("type", "")), str(result.get("item", "")))
             self._last_results_by_key[key] = result
+
+    def get_file_hash(self, file_path: str) -> str:
+        with self._results_lock:
+            result = self._last_results_by_key.get(("file", file_path))
+            return str(result.get("file_hash", "")) if result else ""
 
     def has_results(self) -> bool:
         with self._results_lock:

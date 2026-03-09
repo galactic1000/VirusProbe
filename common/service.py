@@ -346,83 +346,6 @@ class ScannerService:
             cancel_event=cancel_event,
         )
 
-    async def _scan_file_async(
-        self,
-        client: vt.Client,
-        rate_limiter: AsyncRateLimiter,
-        file_path: str,
-        cancel_event: threading.Event | None = None,
-    ) -> dict[str, Any]:
-        prepared, pending = await self._prepare_file_scan_async(file_path, cancel_event)
-        if prepared is not None:
-            return prepared
-        assert pending is not None
-        file_path, file_hash = pending
-        try:
-            (malicious, suspicious, harmless, undetected), was_cached = await self._query_virustotal_async(
-                client, rate_limiter, file_hash
-            )
-        except vt.APIError as exc:
-            if _is_batch_fatal_api_error(exc):
-                raise
-            if exc.code == "NotFoundError" and self.upload_undetected and (
-                self.upload_filter is None or self.upload_filter(file_path)
-            ):
-                return await self._upload_and_scan_async(client, rate_limiter, file_path, file_hash, cancel_event)
-            if exc.code == "NotFoundError":
-                result = self._not_found_result(file_hash)
-                result.update({"item": file_path, "type": "file"})
-                return result
-            return self._error_result(file_path, "file", str(exc), file_hash)
-        except ValueError as exc:
-            return self._error_result(file_path, "file", f"Unexpected VT response: {exc}", file_hash)
-        except Exception as exc:
-            result = self._hash_error(file_hash, str(exc), file_hash)
-            result.update({"item": file_path, "type": "file"})
-            return result
-
-        return self._stats_result(
-            item=file_path,
-            item_type="file",
-            file_hash=file_hash,
-            stats=(malicious, suspicious, harmless, undetected),
-            was_cached=was_cached,
-        )
-
-    async def _scan_hash_async(
-        self,
-        client: vt.Client,
-        rate_limiter: AsyncRateLimiter,
-        file_hash: str,
-        cancel_event: threading.Event | None = None,
-    ) -> dict[str, Any]:
-        prepared, normalized_hash = await self._prepare_hash_scan_async(file_hash, cancel_event)
-        if prepared is not None:
-            return prepared
-        assert normalized_hash is not None
-        try:
-            (malicious, suspicious, harmless, undetected), was_cached = await self._query_virustotal_async(
-                client, rate_limiter, normalized_hash
-            )
-        except vt.APIError as exc:
-            if _is_batch_fatal_api_error(exc):
-                raise
-            if exc.code == "NotFoundError":
-                return self._not_found_result(normalized_hash)
-            return self._hash_error(normalized_hash, str(exc), normalized_hash)
-        except ValueError:
-            return self._not_found_result(normalized_hash)
-        except Exception as exc:
-            return self._hash_error(normalized_hash, str(exc), normalized_hash)
-
-        return self._stats_result(
-            item=self._hash_item(normalized_hash),
-            item_type="hash",
-            file_hash=normalized_hash,
-            stats=(malicious, suspicious, harmless, undetected),
-            was_cached=was_cached,
-        )
-
     async def _upload_file_direct_async(
         self,
         client: vt.Client,
@@ -527,13 +450,16 @@ class ScannerService:
 
         async def _run_one(idx: int, file_path: str) -> None:
             if cancel_event is not None and cancel_event.is_set():
+                result = self._cancelled_result(file_path, "file")
+                results[idx] = result
+                if on_result is not None:
+                    on_result(result)
                 return
             immediate, unresolved = await self._prepare_file_scan_async(file_path, cancel_event)
             if immediate is not None:
                 result = immediate
-            elif unresolved is None:
-                return
             else:
+                assert unresolved is not None
                 unresolved_path, file_hash = unresolved
                 result = await self._scan_file_live_async(client, rate_limiter, unresolved_path, file_hash, cancel_event)
             results[idx] = result
@@ -558,13 +484,16 @@ class ScannerService:
 
         async def _run_one(idx: int, raw_hash: str) -> None:
             if cancel_event is not None and cancel_event.is_set():
+                result = self._cancelled_result(raw_hash, "hash")
+                results[idx] = result
+                if on_result is not None:
+                    on_result(result)
                 return
             immediate, unresolved = await self._prepare_hash_scan_async(raw_hash, cancel_event)
             if immediate is not None:
                 result = immediate
-            elif unresolved is None:
-                return
             else:
+                assert unresolved is not None
                 result = await self._scan_hash_live_async(client, rate_limiter, unresolved)
             results[idx] = result
             if on_result is not None:
@@ -651,6 +580,10 @@ class ScannerService:
                                 return
                             idx, file_path = item
                             if cancel_event is not None and cancel_event.is_set():
+                                result = self._cancelled_result(file_path, "file")
+                                results[idx] = result
+                                if on_result is not None:
+                                    on_result(result)
                                 continue
                             immediate, unresolved = await self._prepare_file_scan_async(file_path, cancel_event)
                             if immediate is not None:
@@ -673,6 +606,10 @@ class ScannerService:
                             idx, unresolved_path, file_hash = item
                             async with semaphore:
                                 if cancel_event is not None and cancel_event.is_set():
+                                    result = self._cancelled_result(unresolved_path, "file", file_hash)
+                                    results[idx] = result
+                                    if on_result is not None:
+                                        on_result(result)
                                     continue
                                 await _scan_one(idx, unresolved_path, file_hash)
                         finally:
@@ -725,6 +662,10 @@ class ScannerService:
                                 return
                             idx, file_hash = item
                             if cancel_event is not None and cancel_event.is_set():
+                                result = self._cancelled_result(str(file_hash), "hash")
+                                results[idx] = result
+                                if on_result is not None:
+                                    on_result(result)
                                 continue
                             immediate, unresolved = await self._prepare_hash_scan_async(file_hash, cancel_event)
                             if immediate is not None:

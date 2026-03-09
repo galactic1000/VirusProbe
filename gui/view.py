@@ -253,7 +253,7 @@ class MainWindow:
         if key in self._item_keys:
             return False
         self._item_keys.add(key)
-        self.table.insert_row("end", [self._iid(item_type, value), item_type, value, "Queued"])
+        self.table.insert_row("end", [self._iid(item_type, value), item_type, value, "Pending"])
         self._update_empty_state()
         return True
 
@@ -282,7 +282,7 @@ class MainWindow:
         hashes: list[tuple[str, str, str]] = []
         for row in self.table.get_rows():
             values = row.values
-            if len(values) < 4 or str(values[3]) != "Queued":
+            if len(values) < 4 or str(values[3]) != "Pending":
                 continue
             entry = (str(row.iid), str(values[1]), str(values[2]))
             (files if entry[1] == "file" else hashes).append(entry)
@@ -311,15 +311,11 @@ class MainWindow:
                 row.values = values
 
     def has_uploadable_undetected(self) -> bool:
-        for row in self.table.get_rows():
-            values = row.values
-            if len(values) >= 4 and str(values[1]) == "file" and str(values[3]) == "Undetected":
-                return True
-        return False
+        return bool(self.undetected_files())
 
-    def selected_undetected_files(self) -> list[tuple[str, str]]:
+    def undetected_files(self, selected_only: bool = False) -> list[tuple[str, str]]:
         entries: list[tuple[str, str]] = []
-        for row in self.table.get_rows(selected=True):
+        for row in self.table.get_rows(selected=selected_only):
             values = row.values
             if len(values) >= 4 and str(values[1]) == "file" and str(values[3]) == "Undetected":
                 entries.append((str(row.iid), str(values[2])))
@@ -350,5 +346,8 @@ class MainWindow:
 
         add(self.set_api_key_btn, "Set or replace the saved VirusTotal API key.")
         add(self.advanced_btn, "Adjust theme, concurrency, rate limit, and upload behavior.")
-        add(self.upload_action_btn, "Upload selected undetected file rows to VirusTotal (uses extra API quota).")
+        add(
+            self.upload_action_btn,
+            "Upload selected undetected files to VirusTotal. If none are selected, all undetected files are uploaded. (Uses extra API quota.)",
+        )
 
