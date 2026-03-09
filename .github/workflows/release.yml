@@ -15,16 +15,22 @@ jobs:
             artifact_suffix: windows
             cli_name: VirusProbe-CLI.exe
             gui_name: VirusProbe-GUI.exe
+            gui_mode: --onefile
+            cli_icon: --icon gui/assets/icon.png
+            gui_icon: --icon gui/assets/icon.png
           - os: ubuntu-latest
             artifact_suffix: linux
             cli_name: VirusProbe-CLI
             gui_name: VirusProbe-GUI
+            gui_mode: --onefile
             strip: --strip
           - os: macos-latest
             artifact_suffix: macos
             cli_name: VirusProbe-CLI
-            gui_name: VirusProbe-GUI
+            gui_name: VirusProbe-GUI.zip
+            gui_mode: --onedir
             strip: --strip
+            gui_icon: --icon gui/assets/icon.png
 
     runs-on: ${{ matrix.os }}
 
@@ -47,16 +53,20 @@ jobs:
       - name: Build CLI executable
         run: >-
           pyinstaller --onefile --name ${{ matrix.cli_name }}
-          ${{ matrix.strip }} --icon gui/assets/icon.png cli.py
+          ${{ matrix.strip }} ${{ matrix.cli_icon }} cli.py
 
       - name: Build GUI executable
         run: >-
-          pyinstaller --onefile --name ${{ matrix.gui_name }} --windowed
+          pyinstaller ${{ matrix.gui_mode }} --name VirusProbe-GUI --windowed
           ${{ matrix.strip }} --additional-hooks-dir=.github/pyinstaller_hooks
           --add-data "gui/assets/icon.png:gui/assets"
-          --icon gui/assets/icon.png
+          ${{ matrix.gui_icon }}
           --exclude-module PIL._avif --exclude-module PIL._webp
           gui.py
+
+      - name: Zip macOS GUI app bundle
+        if: matrix.os == 'macos-latest'
+        run: cd dist && zip -r ${{ matrix.gui_name }} VirusProbe-GUI.app
 
       - name: Upload CLI artifact
         uses: actions/upload-artifact@v4
@@ -96,7 +106,7 @@ jobs:
           cp artifacts/cli-linux/VirusProbe-CLI release/VirusProbe-CLI-linux
           cp artifacts/gui-linux/VirusProbe-GUI release/VirusProbe-GUI-linux
           cp artifacts/cli-macos/VirusProbe-CLI release/VirusProbe-CLI-macos
-          cp artifacts/gui-macos/VirusProbe-GUI release/VirusProbe-GUI-macos
+          cp artifacts/gui-macos/VirusProbe-GUI.zip release/VirusProbe-GUI-macos.zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
