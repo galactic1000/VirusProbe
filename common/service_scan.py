@@ -43,32 +43,6 @@ async def scan_many_async(
     return [r for r in results if r is not None]
 
 
-async def scan_files_async(
-    semaphore: asyncio.Semaphore,
-    scan_file: Callable[[str, threading.Event | None], Awaitable[dict[str, Any]]],
-    file_paths: Iterable[str],
-    on_result: Callable[[dict[str, Any]], None] | None = None,
-    cancel_event: threading.Event | None = None,
-) -> list[dict[str, Any]]:
-    async def _scan_one(file_path: str) -> dict[str, Any]:
-        return await scan_file(file_path, cancel_event)
-
-    return await scan_many_async(semaphore, _scan_one, file_paths, on_result=on_result, cancel_event=cancel_event)
-
-
-async def scan_hashes_async(
-    semaphore: asyncio.Semaphore,
-    scan_hash: Callable[[str, threading.Event | None], Awaitable[dict[str, Any]]],
-    hashes: Iterable[str],
-    on_result: Callable[[dict[str, Any]], None] | None = None,
-    cancel_event: threading.Event | None = None,
-) -> list[dict[str, Any]]:
-    async def _scan_one(hash_value: str) -> dict[str, Any]:
-        return await scan_hash(hash_value, cancel_event)
-
-    return await scan_many_async(semaphore, _scan_one, hashes, on_result=on_result, cancel_event=cancel_event)
-
-
 async def scan_directory_async(
     directory: str,
     scan_files_fn: Callable[

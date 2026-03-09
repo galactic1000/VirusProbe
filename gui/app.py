@@ -82,8 +82,6 @@ class VirusProbeGUI(ttk.Window):
         self.is_uploading = False
         self.is_clearing_cache = False
         self.is_closing = False
-        self.scan_total = 0
-
         self.rpm_var = tk.StringVar(value=str(self.model.saved_rpm))
         self.workers_var = tk.StringVar(value=str(self.model.saved_workers))
         self.upload_timeout_var = tk.StringVar(value=str(self.model.saved_upload_timeout))
@@ -157,7 +155,6 @@ class VirusProbeGUI(ttk.Window):
     def on_clear_items(self) -> None:
         self.view.clear_items()
         self.model.clear_results()
-        self.scan_total = 0
         self.view.set_progress(0, 0)
         self.view.report_button.configure(state="disabled")
         self.view.progress_var.set("Ready")
@@ -239,8 +236,7 @@ class VirusProbeGUI(ttk.Window):
             self._show_info("Nothing to Scan", "All items have already been scanned. Add new items to scan.")
             return
 
-        self.scan_total = len(self.pending_entries)
-        self.view.set_progress(0, self.scan_total)
+        self.view.set_progress(0, len(self.pending_entries))
         self._set_entry_rows_status(self.pending_entries, "Scanning...")
 
         self.current_rpm, self.current_workers, self.current_upload_timeout = self._current_limits()
@@ -279,7 +275,8 @@ class VirusProbeGUI(ttk.Window):
             self._show_error("Missing API Key", "Set an API key before uploading.")
             return
 
-        file_entries = self.view.undetected_files(selected_only=True) or self.view.undetected_files()
+        has_selection = bool(self.view.table.get_rows(selected=True))
+        file_entries = self.view.undetected_files(selected_only=has_selection) if has_selection else self.view.undetected_files()
         if not file_entries:
             return
 
