@@ -134,7 +134,6 @@ class MainWindow:
         self.table = Tableview(
             self.list_frame,
             coldata=[
-                {"text": "IID", "stretch": False, "width": 1, "minwidth": 1},
                 {"text": "Type", "stretch": True, "width": self._TYPE_COL_WIDTH, "minwidth": self._TYPE_COL_MIN_WIDTH},
                 {"text": "Value", "stretch": True, "width": self._VALUE_COL_WIDTH, "minwidth": self._VALUE_COL_MIN_WIDTH},
                 {"text": "Status", "stretch": True, "width": self._STATUS_COL_WIDTH, "minwidth": self._STATUS_COL_MIN_WIDTH},
@@ -148,10 +147,8 @@ class MainWindow:
             stripecolor=None,
             disable_right_click=True,
             bootstyle="default",
-            iid_field="IID",
         )
         self.table.pack(fill=tk.BOTH, expand=True)
-        self.table.hide_selected_column(cid=0)
         self.table.hbar.pack_forget()
 
         self.tree = self.table.view
@@ -253,7 +250,7 @@ class MainWindow:
         if key in self._item_keys:
             return False
         self._item_keys.add(key)
-        self.table.insert_row("end", [self._iid(item_type, value), item_type, value, "Pending"])
+        self.table.insert_row("end", [item_type, value, "Pending"])
         self._update_empty_state()
         return True
 
@@ -263,8 +260,8 @@ class MainWindow:
             return False
         for row in selected_rows:
             values = row.values
-            if len(values) >= 3:
-                self._item_keys.discard((str(values[1]), str(values[2])))
+            if len(values) >= 2:
+                self._item_keys.discard((str(values[0]), str(values[1])))
         self.table.delete_rows(iids=[row.iid for row in selected_rows])
         self._update_empty_state()
         return True
@@ -282,9 +279,9 @@ class MainWindow:
         hashes: list[tuple[str, str, str]] = []
         for row in self.table.get_rows():
             values = row.values
-            if len(values) < 4 or str(values[3]) != "Pending":
+            if len(values) < 3 or str(values[2]) != "Pending":
                 continue
-            entry = (str(row.iid), str(values[1]), str(values[2]))
+            entry = (str(row.iid), str(values[0]), str(values[1]))
             (files if entry[1] == "file" else hashes).append(entry)
         return files + hashes
 
@@ -293,9 +290,9 @@ class MainWindow:
         if row is None:
             return
         values = list(row.values)
-        if len(values) < 4:
+        if len(values) < 3:
             return
-        values[3] = status
+        values[2] = status
         row.values = values
 
     def mark_rows_status_if_current(self, iids: list[str], from_status: str, to_status: str) -> None:
@@ -304,10 +301,10 @@ class MainWindow:
             if row is None:
                 continue
             values = list(row.values)
-            if len(values) < 4:
+            if len(values) < 3:
                 continue
-            if str(values[3]) == from_status:
-                values[3] = to_status
+            if str(values[2]) == from_status:
+                values[2] = to_status
                 row.values = values
 
     def has_uploadable_undetected(self) -> bool:
@@ -317,13 +314,9 @@ class MainWindow:
         entries: list[tuple[str, str]] = []
         for row in self.table.get_rows(selected=selected_only):
             values = row.values
-            if len(values) >= 4 and str(values[1]) == "file" and str(values[3]) == "Undetected":
-                entries.append((str(row.iid), str(values[2])))
+            if len(values) >= 3 and str(values[0]) == "file" and str(values[2]) == "Undetected":
+                entries.append((str(row.iid), str(values[1])))
         return entries
-
-    @staticmethod
-    def _iid(item_type: str, value: str) -> str:
-        return f"{item_type}|{value}"
 
     def _update_empty_state(self) -> None:
         if self.item_count() == 0:
