@@ -6,7 +6,7 @@ from typing import Any
 
 import vt
 
-_HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
+from common.env import HEX_CHARS
 
 
 def hash_item(value: object) -> str:
@@ -51,7 +51,7 @@ def not_found_file_result(file_path: str, file_hash: str) -> dict[str, Any]:
 
 
 def is_sha256(value: str) -> bool:
-    return len(value) == 64 and all(c in _HEX_CHARS for c in value)
+    return len(value) == 64 and all(c in HEX_CHARS for c in value)
 
 
 def classify_threat(malicious: int, suspicious: int = 0) -> str:

@@ -16,6 +16,9 @@ from colorama import Fore, init
 
 from common import (
     CACHE_DB,
+    DEFAULT_REQUESTS_PER_MINUTE,
+    DEFAULT_SCAN_WORKERS,
+    DEFAULT_UPLOAD_TIMEOUT_MINUTES,
     ScannerService,
     get_api_key,
     is_valid_api_key,
@@ -26,7 +29,6 @@ from common import (
     save_api_key_to_env,
     write_report,
 )
-from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
 from .display import (
     SEPARATOR_WIDTH,
     TOOL_VERSION,

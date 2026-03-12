@@ -38,11 +38,11 @@ dotenv.load_dotenv(DOTENV_PATH, override=False)
 
 
 _VT_API_KEY_LENGTH = 64
-_HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
+HEX_CHARS: frozenset[str] = frozenset("0123456789abcdefABCDEF")
 
 
 def is_valid_api_key(key: str) -> bool:
-    return len(key) == _VT_API_KEY_LENGTH and all(c in _HEX_CHARS for c in key)
+    return len(key) == _VT_API_KEY_LENGTH and all(c in HEX_CHARS for c in key)
 
 
 def get_api_key() -> str | None:

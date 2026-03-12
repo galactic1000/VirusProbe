@@ -16,8 +16,7 @@ from tkinterdnd2 import TkinterDnD
 from ttkbootstrap.dialogs.dialogs import Messagebox
 from ttkbootstrap.widgets import ToastNotification
 
-from common import CACHE_DB, THEME_AUTO, UPLOAD_AUTO, get_theme_mode, is_valid_api_key
-from common.service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
+from common import CACHE_DB, DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES, THEME_AUTO, UPLOAD_AUTO, get_theme_mode, is_valid_api_key
 
 from .os_detect import IS_WINDOWS, IS_MACOS, IS_LINUX
 from .style import apply_theme, apply_titlebar_theme, theme_name
