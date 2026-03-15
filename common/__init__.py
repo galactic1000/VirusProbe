@@ -24,13 +24,22 @@ from .env import (
     save_upload_mode_to_env,
     save_workers_to_env,
 )
+from .defaults import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
+from .models import ResultStatus, ScannerConfig, ScanResult, ScanTarget, ScanTargetKind, ThreatLevel, UploadTarget
 from .reporting import build_summary, write_report
-from .service import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES, ScannerService
+from .service import ScannerService
 
 __all__ = [
     "BASE_DIR",
     "CACHE_DB",
+    "ResultStatus",
+    "ScannerConfig",
     "ScannerService",
+    "ScanResult",
+    "ScanTarget",
+    "ScanTargetKind",
+    "ThreatLevel",
+    "UploadTarget",
     "build_summary",
     "write_report",
     "get_api_key",

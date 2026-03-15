@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import json
 import sys
 
 import pytest
@@ -8,32 +8,34 @@ import pytest
 import cli.app as cli_app
 from cli.app import _build_parser
 from cli.display import print_scan_summary
+from common.models import ResultStatus, ScanResult, ScanTargetKind, ThreatLevel
 
 
 class FakeService:
     clear_cache_called = 0
+    init_cache_called = 0
 
     def __init__(self, *args, **kwargs) -> None:
         self.closed = False
 
     def init_cache(self) -> None:
-        return None
+        type(self).init_cache_called += 1
+
+    async def init_cache_async(self) -> None:
+        type(self).init_cache_called += 1
 
     def clear_cache(self) -> int:
         type(self).clear_cache_called += 1
         return 3
 
-    @asynccontextmanager
-    async def async_session(self):
-        yield self
+    async def __aenter__(self):
+        await self.init_cache_async()
+        return self
 
-    async def scan_directory(self, *args, **kwargs):
-        return []
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        self.close()
 
-    async def scan_files(self, *args, **kwargs):
-        return []
-
-    async def scan_hashes(self, *args, **kwargs):
+    async def scan_targets(self, *args, **kwargs):
         return []
 
     def close(self) -> None:
@@ -46,22 +48,17 @@ def _run_main(monkeypatch, argv: list[str]) -> None:
 
 
 def _make_capture_service(*keys: str) -> tuple[type, dict]:
-    captured: dict = {k: None for k in keys}
+    captured = {k: None for k in keys}
 
     class _CaptureService(FakeService):
         def __init__(self, *args, **kwargs) -> None:
             super().__init__(*args, **kwargs)
+            config = kwargs.get("config")
             for k in keys:
-                captured[k] = kwargs.get(k)
+                captured[k] = getattr(config, k, None) if config is not None else kwargs.get(k)
 
     return _CaptureService, captured
 
-
-def test_h_flag_shows_help() -> None:
-    parser = _build_parser()
-    with pytest.raises(SystemExit) as exc:
-        parser.parse_args(["-h"])
-    assert exc.value.code == 0
 
 
 def test_s_flag_maps_to_hashes() -> None:
@@ -97,21 +94,21 @@ def test_upload_timeout_parsing() -> None:
     assert args.upload_timeout == 30
 
 
-def test_print_scan_summary_counts_suspicious_detections(capsys) -> None:
+def test_summary_counts_suspicious_detections(capsys) -> None:
     print_scan_summary(
         [
-            {
-                "item": "SHA-256 hash: " + ("a" * 64),
-                "type": "hash",
-                "file_hash": "a" * 64,
-                "malicious": 0,
-                "suspicious": 3,
-                "harmless": 12,
-                "undetected": 1,
-                "threat_level": "Suspicious",
-                "status": "ok",
-                "message": "",
-            }
+            ScanResult(
+                item="SHA-256 hash: " + ("a" * 64),
+                kind=ScanTargetKind.HASH,
+                file_hash="a" * 64,
+                malicious=0,
+                suspicious=3,
+                harmless=12,
+                undetected=1,
+                threat_level=ThreatLevel.SUSPICIOUS ,
+                status=ResultStatus.OK,
+                message="",
+            )
         ]
     )
     output = capsys.readouterr().out
@@ -119,25 +116,25 @@ def test_print_scan_summary_counts_suspicious_detections(capsys) -> None:
     assert "(3 detections)" in output
 
 
-def test_main_errors_when_recursive_without_directory(monkeypatch) -> None:
+def test_error_recursive_without_directory(monkeypatch) -> None:
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-r", "-s", "a" * 64])
 
 
-def test_main_errors_when_directory_and_files_used_together(monkeypatch) -> None:
+def test_error_directory_and_files_mixed(monkeypatch) -> None:
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-d", ".", "-f", "a.bin"])
 
 
-def test_main_errors_when_api_key_missing(monkeypatch) -> None:
+def test_error_api_key_missing(monkeypatch) -> None:
     monkeypatch.setattr(cli_app, "get_api_key", lambda: None)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
 
 
-def test_main_errors_when_upload_timeout_without_upload(monkeypatch) -> None:
+def test_error_upload_timeout_without_upload(monkeypatch) -> None:
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     with pytest.raises(SystemExit) as exc_info:
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload-timeout", "10"])
@@ -154,21 +151,37 @@ def test_save_api_key_action_only(monkeypatch) -> None:
     monkeypatch.setattr(cli_app, "remove_api_key_from_env", lambda: False)
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
 
-    _run_main(monkeypatch, ["cli.py", "--api-key", "abc", "--save-api-key"])
-    assert calls["saved"] == "abc"
+    valid_key = "b" * 64
+    _run_main(monkeypatch, ["cli.py", "--api-key", valid_key, "--save-api-key"])
+    assert calls["saved"] == valid_key
+
+
+def test_save_api_key_rejects_invalid_key(monkeypatch) -> None:
+    calls = {"saved": None}
+    monkeypatch.setattr(cli_app, "save_api_key_to_env", lambda value: calls.__setitem__("saved", value))
+    monkeypatch.setattr(cli_app, "remove_api_key_from_env", lambda: False)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+
+    with pytest.raises(SystemExit) as exc_info:
+        _run_main(monkeypatch, ["cli.py", "--api-key", "abc", "--save-api-key"])
+
+    assert exc_info.value.code == 2
+    assert calls["saved"] is None
 
 
 def test_clear_cache_action_only(monkeypatch) -> None:
     FakeService.clear_cache_called = 0
+    FakeService.init_cache_called = 0
     monkeypatch.setattr(cli_app, "ScannerService", FakeService)
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
 
     _run_main(monkeypatch, ["cli.py", "--clear-cache"])
+    assert FakeService.init_cache_called == 1
     assert FakeService.clear_cache_called == 1
 
 
-def test_invalid_recursive_input_does_not_run_admin_actions(monkeypatch) -> None:
-    calls: dict[str, str | None] = {"saved": None}
+def test_invalid_recursive_skips_admin_actions(monkeypatch) -> None:
+    calls = {"saved": None}
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
     monkeypatch.setattr(cli_app, "save_api_key_to_env", lambda value: calls.__setitem__("saved", value))
 
@@ -178,7 +191,7 @@ def test_invalid_recursive_input_does_not_run_admin_actions(monkeypatch) -> None
     assert calls["saved"] is None
 
 
-def test_invalid_upload_filter_input_does_not_clear_cache(monkeypatch) -> None:
+def test_invalid_upload_filter_skips_clear_cache(monkeypatch) -> None:
     FakeService.clear_cache_called = 0
     monkeypatch.setattr(cli_app, "ScannerService", FakeService)
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
@@ -189,7 +202,7 @@ def test_invalid_upload_filter_input_does_not_clear_cache(monkeypatch) -> None:
     assert FakeService.clear_cache_called == 0
 
 
-def test_filter_existing_files_returns_only_real_files(tmp_path) -> None:
+def test_filter_existing_files(tmp_path) -> None:
     good = tmp_path / "good.bin"
     good.write_bytes(b"x")
     missing = tmp_path / "missing.bin"
@@ -204,7 +217,7 @@ def test_filter_existing_files_returns_only_real_files(tmp_path) -> None:
     ]
 
 
-def test_upload_filter_path_glob_matches_resolved_absolute_path(tmp_path, monkeypatch) -> None:
+def test_upload_filter_glob_matches_resolved_path(tmp_path, monkeypatch) -> None:
     root = tmp_path / "root"
     target_dir = root / "samples"
     target_dir.mkdir(parents=True)
@@ -216,7 +229,7 @@ def test_upload_filter_path_glob_matches_resolved_absolute_path(tmp_path, monkey
     assert matcher(str(file_path)) is True
 
 
-def test_upload_filter_absolute_path_glob_matches_absolute_path(tmp_path) -> None:
+def test_upload_filter_absolute_glob(tmp_path) -> None:
     target_dir = tmp_path / "absdir"
     target_dir.mkdir(parents=True)
     file_path = target_dir / "y.dll"
@@ -227,10 +240,17 @@ def test_upload_filter_absolute_path_glob_matches_absolute_path(tmp_path) -> Non
     assert matcher(str(file_path)) is True
 
 
-def test_main_exits_1_when_error_results(monkeypatch) -> None:
+def test_exits_1_on_errors(monkeypatch) -> None:
     class ErrorService(FakeService):
-        async def scan_hashes(self, *args, **kwargs):
-            result = {"threat_level": "Error", "status": "error", "message": "API failure"}
+        async def scan_targets(self, *args, **kwargs):
+            result = ScanResult(
+                item="SHA-256 hash: " + ("a" * 64),
+                kind=ScanTargetKind.HASH,
+                file_hash="a" * 64,
+                threat_level=ThreatLevel.ERROR,
+                status=ResultStatus.ERROR,
+                message="API failure",
+            )
             on_result = kwargs.get("on_result")
             if on_result is not None:
                 on_result(result)
@@ -247,10 +267,16 @@ def test_main_exits_1_when_error_results(monkeypatch) -> None:
     assert exc_info.value.code == 1
 
 
-def test_main_exits_0_when_malicious_results(monkeypatch) -> None:
+def test_exits_0_on_malicious(monkeypatch) -> None:
     class MaliciousService(FakeService):
-        async def scan_hashes(self, *args, **kwargs):
-            result = {"threat_level": "Malicious", "status": "ok"}
+        async def scan_targets(self, *args, **kwargs):
+            result = ScanResult(
+                item="SHA-256 hash: " + ("a" * 64),
+                kind=ScanTargetKind.HASH,
+                file_hash="a" * 64,
+                threat_level=ThreatLevel.MALICIOUS,
+                status=ResultStatus.OK,
+            )
             on_result = kwargs.get("on_result")
             if on_result is not None:
                 on_result(result)
@@ -283,7 +309,7 @@ def test_output_toggle_auto_generates_report_name(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("env_timeout", [30, 0])
-def test_main_uses_env_upload_timeout_when_flag_missing(monkeypatch, env_timeout) -> None:
+def test_env_upload_timeout_fallback(monkeypatch, env_timeout) -> None:
     CaptureService, captured = _make_capture_service("upload_timeout_minutes")
     monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
@@ -296,7 +322,7 @@ def test_main_uses_env_upload_timeout_when_flag_missing(monkeypatch, env_timeout
     assert captured["upload_timeout_minutes"] == env_timeout
 
 
-def test_main_accepts_zero_upload_timeout(monkeypatch) -> None:
+def test_accepts_zero_upload_timeout(monkeypatch) -> None:
     CaptureService, captured = _make_capture_service("upload_timeout_minutes")
     monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
@@ -308,7 +334,7 @@ def test_main_accepts_zero_upload_timeout(monkeypatch) -> None:
     assert captured["upload_timeout_minutes"] == 0
 
 
-def test_main_uses_env_rpm_and_workers_when_flags_missing(monkeypatch) -> None:
+def test_env_rpm_and_workers_fallback(monkeypatch) -> None:
     CaptureService, captured = _make_capture_service("requests_per_minute", "max_workers")
     monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
     monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
@@ -322,3 +348,210 @@ def test_main_uses_env_rpm_and_workers_when_flags_missing(monkeypatch) -> None:
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
     assert captured["requests_per_minute"] == 0
     assert captured["max_workers"] == 7
+
+
+def test_writes_report_from_scan(monkeypatch, tmp_path) -> None:
+    output_path = tmp_path / "report.json"
+
+    class ReportService(FakeService):
+        async def scan_targets(self, *args, **kwargs):
+            result = ScanResult(
+                item="SHA-256 hash: " + ("a" * 64),
+                kind=ScanTargetKind.HASH,
+                file_hash="a" * 64,
+                malicious=10,
+                suspicious=0,
+                harmless=1,
+                undetected=0,
+                threat_level=ThreatLevel.MALICIOUS,
+                status=ResultStatus.OK,
+                message="Queried VirusTotal API",
+            )
+            on_result = kwargs.get("on_result")
+            if on_result is not None:
+                on_result(result)
+            return [result]
+
+    monkeypatch.setattr(cli_app, "ScannerService", ReportService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "-o", str(output_path), "--format", "json"])
+
+    data = json.loads(output_path.read_text(encoding="utf-8"))
+    assert data["summary"]["total"] == 1
+    assert data["summary"]["malicious"] == 1
+    assert data["results"][0]["file_hash"] == "a" * 64
+
+
+# ---------------------------------------------------------------------------
+# _handle_admin_actions edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_error_save_and_clear_api_key_together(monkeypatch) -> None:
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["cli.py", "--api-key", "abc", "--save-api-key", "--clear-api-key"])
+
+
+def test_error_save_api_key_without_key(monkeypatch) -> None:
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["cli.py", "--save-api-key"])
+
+
+def test_clear_api_key_action(monkeypatch) -> None:
+    calls: dict[str, int] = {"remove": 0}
+    monkeypatch.setattr(cli_app, "remove_api_key_from_env", lambda: (calls.__setitem__("remove", calls["remove"] + 1) or True))
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    _run_main(monkeypatch, ["cli.py", "--clear-api-key"])
+    assert calls["remove"] == 1
+
+
+def test_clear_api_key_not_found(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_app, "remove_api_key_from_env", lambda: False)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    _run_main(monkeypatch, ["cli.py", "--clear-api-key"])
+    assert "No saved API key found" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# Argument validation edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_error_negative_rpm(monkeypatch) -> None:
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--rpm", "-1"])
+
+
+def test_error_negative_upload_timeout(monkeypatch) -> None:
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload", "--upload-timeout", "-1"])
+
+
+def test_error_workers_less_than_one(monkeypatch) -> None:
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--workers", "0"])
+
+
+def test_error_no_scan_input(monkeypatch) -> None:
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["cli.py"])
+
+
+def test_error_invalid_api_key_format(monkeypatch) -> None:
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "short-key")
+    with pytest.raises(SystemExit):
+        _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
+
+
+# ---------------------------------------------------------------------------
+# Runtime display paths
+# ---------------------------------------------------------------------------
+
+
+def test_workers_greater_than_rpm_prints_warning(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--rpm", "1", "--workers", "8"])
+    assert "workers" in capsys.readouterr().out.lower()
+
+
+def test_upload_mode_message_no_filter(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload"])
+    assert "undetected files will be submitted" in capsys.readouterr().out
+
+
+def test_upload_mode_message_with_filter(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload", "--upload-filter", "*.exe"])
+    assert "*.exe" in capsys.readouterr().out
+
+
+def test_file_input_warnings_printed(monkeypatch, tmp_path, capsys) -> None:
+    good = tmp_path / "good.bin"
+    good.write_bytes(b"x")
+    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    _run_main(monkeypatch, ["cli.py", "-f", str(good), "/no/such/file.bin"])
+    assert "Skipping missing file" in capsys.readouterr().out
+
+
+def test_directory_scan_target(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    _run_main(monkeypatch, ["cli.py", "-d", str(tmp_path)])
+
+
+def test_exits_130_on_keyboard_interrupt(monkeypatch) -> None:
+    class CancelService(FakeService):
+        async def scan_targets(self, *args, **kwargs):
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_app, "ScannerService", CancelService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    with pytest.raises(SystemExit) as exc_info:
+        _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
+    assert exc_info.value.code == 130
+
+
+def test_raises_on_unexpected_exception_no_results(monkeypatch) -> None:
+    class BoomService(FakeService):
+        async def scan_targets(self, *args, **kwargs):
+            raise RuntimeError("network down")
+
+    monkeypatch.setattr(cli_app, "ScannerService", BoomService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    with pytest.raises(RuntimeError, match="network down"):
+        _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
+
+
+def test_prints_run_error_when_results_exist(monkeypatch, capsys) -> None:
+    class PartialService(FakeService):
+        async def scan_targets(self, *args, **kwargs):
+            result = ScanResult(
+                item="SHA-256 hash: " + ("a" * 64),
+                kind=ScanTargetKind.HASH,
+                file_hash="a" * 64,
+                threat_level=ThreatLevel.CLEAN,
+                status=ResultStatus.OK,
+            )
+            on_result = kwargs.get("on_result")
+            if on_result:
+                on_result(result)
+            raise RuntimeError("partial failure")
+
+    monkeypatch.setattr(cli_app, "ScannerService", PartialService)
+    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
+    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
+    assert "partial failure" in capsys.readouterr().out

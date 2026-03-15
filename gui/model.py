@@ -6,13 +6,17 @@ import asyncio
 import threading
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
 
 from common import (
     DEFAULT_REQUESTS_PER_MINUTE,
     DEFAULT_SCAN_WORKERS,
     DEFAULT_UPLOAD_TIMEOUT_MINUTES,
+    ResultStatus,
+    ScannerConfig,
+    ScanResult,
+    ScanTargetKind,
     ScannerService,
+    ThreatLevel,
     THEME_AUTO,
     THEME_DARK,
     THEME_LIGHT,
@@ -22,6 +26,7 @@ from common import (
     get_upload_timeout_minutes,
     get_upload_mode,
     get_workers,
+    is_valid_api_key,
     remove_api_key_from_env,
     save_api_key_to_env,
     save_requests_per_minute_to_env,
@@ -35,9 +40,11 @@ from common import (
 class AppModel:
     def __init__(self, cache_db: Path) -> None:
         self.cache_db = cache_db
-        self.api_key: str | None = get_api_key()
-        self.upload_mode: str = get_upload_mode()
-        self.theme_mode: str = get_theme_mode() or THEME_AUTO
+        loaded_api_key = get_api_key()
+        self.had_invalid_loaded_api_key = bool(loaded_api_key) and not is_valid_api_key(loaded_api_key)
+        self.api_key = loaded_api_key if (loaded_api_key and is_valid_api_key(loaded_api_key)) else None
+        self.upload_mode = get_upload_mode()
+        self.theme_mode = get_theme_mode() or THEME_AUTO
         self.saved_rpm = v if (v := get_requests_per_minute()) is not None else DEFAULT_REQUESTS_PER_MINUTE
         self.saved_workers = v if (v := get_workers()) is not None else DEFAULT_SCAN_WORKERS
         self.saved_upload_timeout = v if (v := get_upload_timeout_minutes()) is not None else DEFAULT_UPLOAD_TIMEOUT_MINUTES
@@ -46,9 +53,14 @@ class AppModel:
         self._scanner: ScannerService | None = None
         self._scanner_lock = threading.Lock()
         self._scanner_init_lock = asyncio.Lock()
-        self._scanner_config: tuple[str, int, int, int, bool] | None = None
+        self._scanner_config: tuple[str, ScannerConfig] | None = None
         self._results_lock = threading.Lock()
-        self._last_results_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+        self._last_results_by_key: dict[tuple[str, str], ScanResult] = {}
+
+    @staticmethod
+    def _result_key(result: ScanResult) -> tuple[str, str]:
+        value = result.file_hash if result.kind is ScanTargetKind.HASH else result.item
+        return result.type, value
 
     def close(self) -> None:
         self.reset_scanner()
@@ -86,14 +98,8 @@ class AppModel:
         with self._scanner_lock:
             self._scanner_config = None
 
-    async def acquire_scanner_async(
-        self,
-        requests_per_minute: int,
-        workers: int,
-        upload_timeout: int,
-        upload_undetected: bool,
-    ) -> ScannerService:
-        desired = (self.api_key or "", requests_per_minute, workers, upload_timeout, upload_undetected)
+    async def acquire_scanner_async(self, config: ScannerConfig) -> ScannerService:
+        desired = (self.api_key or "", config)
         with self._scanner_lock:
             if self._scanner is not None and self._scanner_config == desired:
                 return self._scanner
@@ -109,10 +115,7 @@ class AppModel:
                 scanner = ScannerService(
                     api_key=self.api_key or "",
                     cache_db=self.cache_db,
-                    requests_per_minute=requests_per_minute,
-                    max_workers=workers,
-                    upload_timeout_minutes=upload_timeout,
-                    upload_undetected=upload_undetected,
+                    config=config,
                 )
             try:
                 await scanner.init_cache_async()
@@ -132,38 +135,41 @@ class AppModel:
             return await scanner.clear_cache_async()
         service = ScannerService(api_key=self.api_key or "", cache_db=self.cache_db)
         try:
+            await service.init_cache_async()
             return await service.clear_cache_async()
         finally:
             with suppress(Exception):
                 await asyncio.get_running_loop().run_in_executor(None, service.close)
 
-    def merge_results(self, new_results: list[dict[str, Any]]) -> None:
+    def upsert_result(self, result: ScanResult) -> None:
         with self._results_lock:
-            for result in new_results:
-                key = (str(result.get("type", "")), str(result.get("item", "")))
-                self._last_results_by_key[key] = result
-
-    def upsert_result(self, result: dict[str, Any]) -> None:
-        with self._results_lock:
-            key = (str(result.get("type", "")), str(result.get("item", "")))
-            self._last_results_by_key[key] = result
+            self._last_results_by_key[self._result_key(result)] = result
 
     def get_file_hash(self, file_path: str) -> str:
         with self._results_lock:
             result = self._last_results_by_key.get(("file", file_path))
-            return str(result.get("file_hash", "")) if result else ""
+            return result.file_hash if result else ""
 
     def has_results(self) -> bool:
         with self._results_lock:
             return bool(self._last_results_by_key)
 
-    def results_snapshot(self) -> list[dict[str, Any]]:
+    def results_snapshot(self) -> list[ScanResult]:
         with self._results_lock:
             return list(self._last_results_by_key.values())
+
+    def results_for_keys(self, keys: list[tuple[str, str]]) -> list[ScanResult]:
+        with self._results_lock:
+            return [result for key in keys if (result := self._last_results_by_key.get(key)) is not None]
 
     def clear_results(self) -> None:
         with self._results_lock:
             self._last_results_by_key = {}
+
+    def remove_results(self, keys: list[tuple[str, str]]) -> None:
+        with self._results_lock:
+            for key in keys:
+                self._last_results_by_key.pop(key, None)
 
     @staticmethod
     def parse_int(raw: str, default: int, minimum: int) -> int:
@@ -174,14 +180,12 @@ class AppModel:
         return max(minimum, value)
 
     @staticmethod
-    def result_status(result: dict[str, Any]) -> str:
-        if result.get("status") == "cancelled":
+    def result_status(result: ScanResult) -> str:
+        if result.status == ResultStatus.CANCELLED:
             return "Cancelled"
-        if result.get("status") == "error":
+        if result.status == ResultStatus.ERROR:
             return "Error"
-        if result.get("threat_level") == "Undetected":
+        if result.threat_level == ThreatLevel.UNDETECTED:
             return "Undetected"
-        prefix = "Uploaded - " if result.get("was_uploaded") else ""
-        level = ScannerService.classify_threat(result.get("malicious", 0), result.get("suspicious", 0))
-        return f"{prefix}{level}"
-
+        prefix = "Uploaded - " if result.was_uploaded else ""
+        return f"{prefix}{result.threat_level}"

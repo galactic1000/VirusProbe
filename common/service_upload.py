@@ -1,4 +1,4 @@
-"""Upload and analysis-polling helpers used by ScannerService."""
+"""Upload and analysis polling."""
 
 from __future__ import annotations
 
@@ -8,24 +8,23 @@ import threading
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
+
+import sqlite3
 
 import aiohttp
-import vt
 
-from .api_errors import BATCH_FATAL_API_ERROR_CODES
+from .api_errors import is_batch_fatal_api_error
+from .models import ResultStatus, ScanResult, ScanTargetKind, ThreatLevel
 from .rate_limit import AsyncRateLimiter
 
 _UPLOAD_SIZE_THRESHOLD = 32 * 1024 * 1024  # 32 MB
 _UPLOAD_MAX_SIZE = 650 * 1024 * 1024  # 650 MB hard cap
 _MIN_POLL_INTERVAL = 15  # seconds between analysis status polls
 
-class ScanCancelledError(Exception):
-    """Internal control-flow exception used for cooperative cancellation."""
+class ScanCancelledError(Exception): ...
 
 
-def _is_batch_fatal_upload_error(exc: Exception) -> bool:
-    return isinstance(exc, vt.APIError) and exc.code in BATCH_FATAL_API_ERROR_CODES
 
 
 async def upload_file_async(
@@ -33,14 +32,18 @@ async def upload_file_async(
     rate_limiter: AsyncRateLimiter,
     file_path: str,
 ) -> str:
-    file_size = await asyncio.to_thread(lambda: Path(file_path).stat().st_size)
+    path = Path(file_path)
+
+    def _stat_and_open() -> tuple[int, BinaryIO]:
+        st = path.stat()
+        return st.st_size, path.open("rb")
+
+    file_size, f = await asyncio.to_thread(_stat_and_open)
     if file_size > _UPLOAD_MAX_SIZE:
         raise ValueError("File exceeds VirusTotal upload limit (max 650 MB)")
-
-    f = await asyncio.to_thread(open, file_path, "rb")
     try:
         form = aiohttp.FormData()
-        form.add_field("file", f, filename=Path(file_path).name)
+        form.add_field("file", f, filename=path.name)
         if file_size >= _UPLOAD_SIZE_THRESHOLD:
             await rate_limiter.acquire()
             upload_url: str = await client.get_data_async("/files/upload_url")
@@ -111,41 +114,40 @@ async def upload_and_scan_async(
     upload_file_fn: Callable[[str], Any],
     poll_analysis_fn: Callable[[str, threading.Event | None], Any],
     cache_save: Callable[[str, tuple[int, int, int, int]], Awaitable[None]],
-    classify_threat: Callable[[int, int], str],
-    error_result: Callable[[str, str, str, str], dict[str, Any]],
-    cancelled_result: Callable[[str, str, str], dict[str, Any]],
+    classify_threat: Callable[[int, int], ThreatLevel],
+    error_result: Callable[[str, ScanTargetKind, str, str], ScanResult],
+    cancelled_result: Callable[[str, ScanTargetKind, str], ScanResult],
     file_path: str,
     file_hash: str,
     cancel_event: threading.Event | None = None,
-) -> dict[str, Any]:
+) -> ScanResult:
     try:
         if cancel_event is not None and cancel_event.is_set():
             raise ScanCancelledError()
         analysis_id = await upload_file_fn(file_path)
         malicious, suspicious, harmless, undetected = await poll_analysis_fn(analysis_id, cancel_event)
     except ScanCancelledError:
-        return cancelled_result(file_path, "file", file_hash)
+        return cancelled_result(file_path, ScanTargetKind.FILE, file_hash)
     except Exception as exc:
-        if _is_batch_fatal_upload_error(exc):
+        if is_batch_fatal_api_error(exc):
             raise
-        return error_result(file_path, "file", f"Upload failed: {exc}", file_hash)
+        return error_result(file_path, ScanTargetKind.FILE, f"Upload failed: {exc}", file_hash)
 
     try:
         await cache_save(file_hash, (malicious, suspicious, harmless, undetected))
-    except Exception:
+    except sqlite3.Error:
         pass
 
-    return {
-        "item": file_path,
-        "type": "file",
-        "file_hash": file_hash,
-        "malicious": malicious,
-        "suspicious": suspicious,
-        "harmless": harmless,
-        "undetected": undetected,
-        "threat_level": classify_threat(malicious, suspicious),
-        "status": "ok",
-        "message": "Uploaded to VirusTotal and scanned",
-        "was_cached": False,
-        "was_uploaded": True,
-    }
+    return ScanResult(
+        item=file_path,
+        kind=ScanTargetKind.FILE,
+        file_hash=file_hash,
+        malicious=malicious,
+        suspicious=suspicious,
+        harmless=harmless,
+        undetected=undetected,
+        threat_level=classify_threat(malicious, suspicious),
+        status=ResultStatus.OK,
+        message="Uploaded to VirusTotal and scanned",
+        was_uploaded=True,
+    )

@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Callable
 import fnmatch
 import signal
 import sys
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
 
 from colorama import Fore, init
 
@@ -19,6 +19,10 @@ from common import (
     DEFAULT_REQUESTS_PER_MINUTE,
     DEFAULT_SCAN_WORKERS,
     DEFAULT_UPLOAD_TIMEOUT_MINUTES,
+    ResultStatus,
+    ScannerConfig,
+    ScanResult,
+    ScanTarget,
     ScannerService,
     get_api_key,
     is_valid_api_key,
@@ -60,7 +64,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     targets = parser.add_argument_group("Scan Targets")
     targets.add_argument("-f", "--file", "--files", dest="files", nargs="+", metavar="FILE", help="One or more file paths to scan")
-    targets.add_argument("-s", "--hash", "--hashes", dest="hashes", nargs="+", metavar="SHA256", help="One or more SHA-256 hashes to scan")
+    targets.add_argument("-s", "--hash", "--hashes", dest="hashes", nargs="+", metavar="HASH", help="One or more SHA-256 hashes to scan")
     targets.add_argument("-d", "--directory", "--dir", metavar="DIR", help="Scan all files in a directory")
     targets.add_argument("-r", "--recursive", action="store_true", help="When using --directory, scan subdirectories recursively")
 
@@ -120,7 +124,7 @@ def _handle_admin_actions(
     parser: argparse.ArgumentParser,
     args: argparse.Namespace,
     explicit_api_key: str,
-    workers: int,
+    service: ScannerService,
 ) -> bool:
     has_admin_action = args.save_api_key or args.clear_api_key or args.clear_cache
 
@@ -128,6 +132,8 @@ def _handle_admin_actions(
         parser.error("Use only one of --save-api-key or --clear-api-key")
     if args.save_api_key and not explicit_api_key:
         parser.error("--save-api-key requires --api-key")
+    if args.save_api_key and not is_valid_api_key(explicit_api_key):
+        parser.error("VirusTotal API key must be a 64-character hex string.")
 
     if args.save_api_key:
         save_api_key_to_env(explicit_api_key)
@@ -138,19 +144,16 @@ def _handle_admin_actions(
         print("Removed saved API key from .env" if removed else "No saved API key found")
 
     if args.clear_cache:
-        cache_service = ScannerService(api_key=explicit_api_key or get_api_key() or "", cache_db=CACHE_DB, max_workers=workers)
-        try:
-            deleted = cache_service.clear_cache()
-        finally:
-            cache_service.close()
+        service.init_cache()
+        deleted = service.clear_cache()
         print(f"Cleared SQLite cache ({deleted} entr{'y' if deleted == 1 else 'ies'}).")
 
     return has_admin_action
 
 
 def _build_upload_filter(patterns: list[str]) -> Callable[[str], bool]:
-    simple: list[str] = []
-    path_pats: list[str] = []
+    simple = []
+    path_pats = []
     for pat in patterns:
         if "/" in pat or "\\" in pat:
             path_pats.append(pat)
@@ -174,8 +177,8 @@ def _build_upload_filter(patterns: list[str]) -> Callable[[str], bool]:
 
 
 def _filter_existing_files(files: list[str]) -> tuple[list[str], list[str]]:
-    valid_files: list[str] = []
-    warnings: list[str] = []
+    valid_files = []
+    warnings = []
     for file_path in files:
         path_obj = Path(file_path)
         if not path_obj.exists():
@@ -219,17 +222,32 @@ def main() -> None:
     if args.upload_filter and not args.upload:
         parser.error("--upload-filter requires --upload")
 
-    has_admin_action = _handle_admin_actions(parser, args, explicit_api_key, args.workers)
+    api_key = explicit_api_key or get_api_key() or ""
+    service = ScannerService(
+        api_key=api_key,
+        cache_db=CACHE_DB,
+        config=ScannerConfig(
+            max_workers=args.workers,
+            requests_per_minute=args.requests_per_minute,
+            upload_timeout_minutes=args.upload_timeout,
+            upload_undetected=args.upload,
+            upload_filter=_build_upload_filter(args.upload_filter) if args.upload_filter else None,
+        ),
+    )
+    has_admin_action = _handle_admin_actions(parser, args, explicit_api_key, service)
     if has_admin_action and not has_scan_input:
+        service.close()
         return
 
     if not has_scan_input:
+        service.close()
         parser.error("Provide scan input via --directory, --file, or --hash.")
 
-    api_key = explicit_api_key or get_api_key()
     if not api_key:
+        service.close()
         parser.error("VirusTotal API key is required. Set VT_API_KEY in environment or .env file.")
     if not is_valid_api_key(api_key):
+        service.close()
         parser.error("VirusTotal API key must be a 64-character hex string.")
 
     print_banner()
@@ -247,9 +265,9 @@ def main() -> None:
     directory_is_valid = False
     if args.directory:
         directory_path = Path(args.directory)
-        directory_is_valid = directory_path.exists() and directory_path.is_dir()
-    file_list: list[str] = []
-    input_warnings: list[str] = []
+        directory_is_valid = directory_path.is_dir()
+    file_list = []
+    input_warnings = []
     if args.files:
         file_list, input_warnings = _filter_existing_files(args.files)
         if input_warnings:
@@ -261,29 +279,19 @@ def main() -> None:
     display_total: int | None = None if (args.directory and directory_is_valid) else total
 
     completed = 0
-    results: list[dict] = []
+    results = []
 
-    def on_result(result: dict) -> None:
+    def on_result(result: ScanResult) -> None:
         nonlocal completed
         results.append(result)
         completed += 1
         print_result(result, index=completed, total=display_total)
 
-    upload_filter = _build_upload_filter(args.upload_filter) if args.upload_filter else None
     if args.upload:
         if args.upload_filter:
             print(format_colored(f"Upload mode: undetected files matching {args.upload_filter} will be submitted to VirusTotal.", Fore.YELLOW))
         else:
             print(format_colored("Upload mode: undetected files will be submitted to VirusTotal for scanning.", Fore.YELLOW))
-    service = ScannerService(
-        api_key=api_key,
-        cache_db=CACHE_DB,
-        max_workers=args.workers,
-        requests_per_minute=args.requests_per_minute,
-        upload_timeout_minutes=args.upload_timeout,
-        upload_undetected=args.upload,
-        upload_filter=upload_filter,
-    )
     cancel_event = threading.Event()
     cancelled = False
 
@@ -300,46 +308,40 @@ def main() -> None:
             raise KeyboardInterrupt
 
     async def _run_scans_async() -> None:
-        async with service.async_session():
+        async with service:
+            targets = []
             if args.directory:
-                await service.scan_directory(
-                    args.directory, recursive=args.recursive, on_result=on_result, cancel_event=cancel_event
-                )
-            if not cancel_event.is_set() and file_list:
-                await service.scan_files(file_list, on_result=on_result, cancel_event=cancel_event)
-            if not cancel_event.is_set() and hash_list:
-                await service.scan_hashes(hash_list, on_result=on_result, cancel_event=cancel_event)
+                targets.append(ScanTarget.from_directory(args.directory, recursive=args.recursive))
+            targets.extend(ScanTarget.from_file_path(file_path) for file_path in file_list)
+            targets.extend(ScanTarget.from_hash(file_hash) for file_hash in hash_list)
+            await service.scan_targets(targets, on_result=on_result, cancel_event=cancel_event)
 
+    signal.signal(signal.SIGINT, _sigint_handler)
+    run_error: Exception | None = None
     try:
-        service.init_cache()
-        signal.signal(signal.SIGINT, _sigint_handler)
-        run_error: Exception | None = None
-        try:
-            asyncio.run(_run_scans_async())
-        except KeyboardInterrupt:
-            cancelled = True
-        except Exception as exc:
-            run_error = exc
-        finally:
-            signal.signal(signal.SIGINT, original_sigint)
-
-        if not results:
-            if cancelled:
-                sys.exit(_EXIT_CANCELLED)
-            if run_error is not None:
-                raise run_error
-            return
-
-        if run_error is not None:
-            print(format_colored(f"Scan aborted: {run_error}", Fore.RED))
-        print_scan_summary(results)
-        if args.output:
-            write_report(results, args.output, report_format, separator_width=SEPARATOR_WIDTH)
-            print(format_colored(f"Report saved to {args.output}", Fore.CYAN))
+        asyncio.run(_run_scans_async())
+    except KeyboardInterrupt:
+        cancelled = True
+    except Exception as exc:
+        run_error = exc
     finally:
-        service.close()
+        signal.signal(signal.SIGINT, original_sigint)
+
+    if not results:
+        if cancelled:
+            sys.exit(_EXIT_CANCELLED)
+        if run_error is not None:
+            raise run_error
+        return
+
+    if run_error is not None:
+        print(format_colored(f"Scan aborted: {run_error}", Fore.RED))
+    print_scan_summary(results)
+    if args.output:
+        write_report(results, args.output, report_format, separator_width=SEPARATOR_WIDTH)
+        print(format_colored(f"Report saved to {args.output}", Fore.CYAN))
 
     if cancelled:
         sys.exit(_EXIT_CANCELLED)
-    if any(r.get("status") == "error" for r in results):
+    if any(r.status == ResultStatus.ERROR for r in results):
         sys.exit(_EXIT_ERROR)

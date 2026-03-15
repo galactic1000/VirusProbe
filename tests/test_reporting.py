@@ -6,34 +6,35 @@ from pathlib import Path
 
 import pytest
 
+from common.models import ResultStatus, ScanResult, ScanTargetKind, ThreatLevel
 from common.reporting import write_report
 
 
 SAMPLE_RESULTS = [
-    {
-        "item": "SHA-256 hash: " + "a" * 64,
-        "type": "hash",
-        "file_hash": "a" * 64,
-        "malicious": 12,
-        "suspicious": 1,
-        "harmless": 0,
-        "undetected": 0,
-        "threat_level": "Malicious",
-        "status": "ok",
-        "message": "Queried VirusTotal API",
-    },
-    {
-        "item": "SHA-256 hash: " + "b" * 64,
-        "type": "hash",
-        "file_hash": "b" * 64,
-        "malicious": 0,
-        "suspicious": 0,
-        "harmless": 0,
-        "undetected": 0,
-        "threat_level": "Undetected",
-        "status": "undetected",
-        "message": "No VirusTotal record found",
-    },
+    ScanResult(
+        item="SHA-256 hash: " + "a" * 64,
+        kind=ScanTargetKind.HASH,
+        file_hash="a" * 64,
+        malicious=12,
+        suspicious=1,
+        harmless=0,
+        undetected=0,
+        threat_level=ThreatLevel.MALICIOUS,
+        status=ResultStatus.OK,
+        message="Queried VirusTotal API",
+    ),
+    ScanResult(
+        item="SHA-256 hash: " + "b" * 64,
+        kind=ScanTargetKind.HASH,
+        file_hash="b" * 64,
+        malicious=0,
+        suspicious=0,
+        harmless=0,
+        undetected=0,
+        threat_level=ThreatLevel.UNDETECTED,
+        status=ResultStatus.UNDETECTED,
+        message="No VirusTotal record found",
+    ),
 ]
 
 
@@ -54,20 +55,16 @@ def test_write_report_csv(tmp_path) -> None:
     assert rows[0]["threat_level"] == "Malicious"
 
 
-def test_write_report_txt(tmp_path) -> None:
-    out = tmp_path / "report.txt"
-    write_report(SAMPLE_RESULTS, str(out), "txt")
+@pytest.mark.parametrize("fmt,expected", [
+    ("txt", ["VIRUS SCAN REPORT", "Total: 2"]),
+    ("md", ["# Virus Scan Report", "| Item | Type |"]),
+])
+def test_write_report_text_formats(tmp_path, fmt: str, expected: list[str]) -> None:
+    out = tmp_path / f"report.{fmt}"
+    write_report(SAMPLE_RESULTS, str(out), fmt)
     text = out.read_text(encoding="utf-8")
-    assert "VIRUS SCAN REPORT" in text
-    assert "Total: 2" in text
-
-
-def test_write_report_md(tmp_path) -> None:
-    out = tmp_path / "report.md"
-    write_report(SAMPLE_RESULTS, str(out), "md")
-    text = out.read_text(encoding="utf-8")
-    assert "# Virus Scan Report" in text
-    assert "| Item | Type |" in text
+    for s in expected:
+        assert s in text
 
 
 def test_write_report_creates_parent_dirs(tmp_path) -> None:
@@ -77,18 +74,18 @@ def test_write_report_creates_parent_dirs(tmp_path) -> None:
     assert Path(out).parent.exists()
 
 
-_ERROR_RESULT = {
-    "item": "bad.exe",
-    "type": "file",
-    "file_hash": "",
-    "malicious": 0,
-    "suspicious": 0,
-    "harmless": 0,
-    "undetected": 0,
-    "threat_level": "Error",
-    "status": "error",
-    "message": "File not found",
-}
+_ERROR_RESULT = ScanResult(
+    item="bad.exe",
+    kind=ScanTargetKind.FILE,
+    file_hash="",
+    malicious=0,
+    suspicious=0,
+    harmless=0,
+    undetected=0,
+    threat_level=ThreatLevel.ERROR,
+    status=ResultStatus.ERROR,
+    message="File not found",
+)
 
 
 @pytest.mark.parametrize("fmt", ["md", "txt"])
@@ -99,18 +96,24 @@ def test_write_report_includes_errors_in_summary(tmp_path, fmt) -> None:
 
 
 def test_write_report_md_escapes_pipe_in_item(tmp_path) -> None:
-    result = {
-        "item": "path|with|pipes.exe",
-        "type": "file",
-        "file_hash": "c" * 64,
-        "malicious": 0,
-        "suspicious": 0,
-        "harmless": 10,
-        "undetected": 0,
-        "threat_level": "Clean",
-        "status": "ok",
-        "message": "",
-    }
+    result = ScanResult(
+        item="path|with|pipes.exe",
+        kind=ScanTargetKind.FILE,
+        file_hash="c" * 64,
+        malicious=0,
+        suspicious=0,
+        harmless=10,
+        undetected=0,
+        threat_level=ThreatLevel.CLEAN,
+        status=ResultStatus.OK,
+        message="",
+    )
     out = tmp_path / "report.md"
     write_report([result], str(out), "md")
     assert r"path\|with\|pipes.exe" in out.read_text(encoding="utf-8")
+
+
+def test_write_report_rejects_unknown_format(tmp_path) -> None:
+    out = tmp_path / "report.bad"
+    with pytest.raises(ValueError, match="Unsupported report format"):
+        write_report(SAMPLE_RESULTS, str(out), "bad")

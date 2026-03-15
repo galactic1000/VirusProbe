@@ -1,71 +1,84 @@
-"""Result-building helpers and classification utilities for the scanner service."""
+"""Result builders and threat classification."""
 
 from __future__ import annotations
 
-from typing import Any
-
 import vt
 
-from common.env import HEX_CHARS
+from .models import ResultStatus, ScanResult, ScanTargetKind, ThreatLevel
+from .env import HEX_CHARS
 
 
-def hash_item(value: object) -> str:
+def format_hash(value: object) -> str:
     return f"SHA-256 hash: {value}"
 
 
-def base_result(item: str, item_type: str, file_hash: str, threat_level: str, status: str, message: str) -> dict[str, Any]:
-    return {
-        "item": item,
-        "type": item_type,
-        "file_hash": file_hash,
-        "malicious": 0,
-        "suspicious": 0,
-        "harmless": 0,
-        "undetected": 0,
-        "threat_level": threat_level,
-        "status": status,
-        "message": message,
-        "was_cached": False,
-        "was_uploaded": False,
-    }
+def base_result(
+    item: str,
+    kind: ScanTargetKind,
+    file_hash: str,
+    threat_level: ThreatLevel,
+    status: ResultStatus,
+    message: str,
+) -> ScanResult:
+    return ScanResult(
+        item=item,
+        kind=kind,
+        file_hash=file_hash,
+        threat_level=threat_level,
+        status=status,
+        message=message,
+    )
 
 
-def error_result(item: str, item_type: str, message: str, file_hash: str = "") -> dict[str, Any]:
-    return base_result(item, item_type, file_hash, "Error", "error", message)
+def error_result(item: str, kind: ScanTargetKind, message: str, file_hash: str = "") -> ScanResult:
+    return base_result(item, kind, file_hash, ThreatLevel.ERROR, ResultStatus.ERROR, message)
 
 
-def cancelled_result(item: str, item_type: str, file_hash: str = "") -> dict[str, Any]:
-    return base_result(item, item_type, file_hash, "Cancelled", "cancelled", "Cancelled by user")
+def cancelled_result(item: str, kind: ScanTargetKind, file_hash: str = "") -> ScanResult:
+    return base_result(item, kind, file_hash, ThreatLevel.CANCELLED, ResultStatus.CANCELLED, "Cancelled by user")
 
 
-def hash_error(value: object, message: str, file_hash: str = "") -> dict[str, Any]:
-    return error_result(hash_item(value), "hash", message, file_hash)
+
+def hash_error(value: object, message: str, file_hash: str = "") -> ScanResult:
+    return error_result(format_hash(value), ScanTargetKind.HASH, message, file_hash)
 
 
-def not_found_result(normalized_hash: str) -> dict[str, Any]:
-    return base_result(hash_item(normalized_hash), "hash", normalized_hash, "Undetected", "undetected", "No VirusTotal record found")
+def not_found_result(normalized_hash: str) -> ScanResult:
+    return base_result(
+        format_hash(normalized_hash),
+        ScanTargetKind.HASH,
+        normalized_hash,
+        ThreatLevel.UNDETECTED,
+        ResultStatus.UNDETECTED,
+        "No VirusTotal record found",
+    )
 
 
-def not_found_file_result(file_path: str, file_hash: str) -> dict[str, Any]:
-    return base_result(file_path, "file", file_hash, "Undetected", "undetected", "No VirusTotal record found")
+def not_found_file_result(file_path: str, file_hash: str) -> ScanResult:
+    return base_result(
+        file_path,
+        ScanTargetKind.FILE,
+        file_hash,
+        ThreatLevel.UNDETECTED,
+        ResultStatus.UNDETECTED,
+        "No VirusTotal record found",
+    )
 
 
 def is_sha256(value: str) -> bool:
     return len(value) == 64 and all(c in HEX_CHARS for c in value)
 
 
-def classify_threat(malicious: int, suspicious: int = 0) -> str:
+def classify_threat(malicious: int, suspicious: int = 0) -> ThreatLevel:
     if malicious >= 10:
-        return "Malicious"
+        return ThreatLevel.MALICIOUS
     if malicious > 0 or suspicious >= 3:
-        return "Suspicious"
-    return "Clean"
+        return ThreatLevel.SUSPICIOUS
+    return ThreatLevel.CLEAN
 
 
 def extract_stats(obj: vt.Object) -> tuple[int, int, int, int]:
     stats = obj.last_analysis_stats
-    if not isinstance(stats, dict):
-        raise ValueError("VirusTotal response missing analysis stats")
     return (
         int(stats["malicious"]),
         int(stats["suspicious"]),
@@ -77,23 +90,22 @@ def extract_stats(obj: vt.Object) -> tuple[int, int, int, int]:
 def stats_result(
     *,
     item: str,
-    item_type: str,
+    kind: ScanTargetKind,
     file_hash: str,
     stats: tuple[int, int, int, int],
     was_cached: bool,
-) -> dict[str, Any]:
+) -> ScanResult:
     malicious, suspicious, harmless, undetected = stats
-    return {
-        "item": item,
-        "type": item_type,
-        "file_hash": file_hash,
-        "malicious": malicious,
-        "suspicious": suspicious,
-        "harmless": harmless,
-        "undetected": undetected,
-        "threat_level": classify_threat(malicious, suspicious),
-        "status": "ok",
-        "message": "Using cached result" if was_cached else "Queried VirusTotal API",
-        "was_cached": was_cached,
-        "was_uploaded": False,
-    }
+    return ScanResult(
+        item=item,
+        kind=kind,
+        file_hash=file_hash,
+        malicious=malicious,
+        suspicious=suspicious,
+        harmless=harmless,
+        undetected=undetected,
+        threat_level=classify_threat(malicious, suspicious),
+        status=ResultStatus.OK,
+        message="Using cached result" if was_cached else "Queried VirusTotal API",
+        was_cached=was_cached,
+    )

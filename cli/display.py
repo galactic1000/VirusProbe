@@ -6,14 +6,14 @@ import shutil
 
 from colorama import Fore, Style
 
-from common import build_summary
+from common import ScanResult, build_summary
+from common.models import ResultStatus, ScanTargetKind, ThreatLevel
 
 TOOL_NAME = "VirusProbe"
 TOOL_VERSION = "1.0.0"
-TOOL_TAGLINE = "VirusTotal Scanner"
+TOOL_TAGLINE = "Malware Scanner Powered by VirusTotal"
 BANNER_BORDER_CHAR = "#"
 HEADER_BORDER_CHAR = "="
-SECTION_BORDER_CHAR = "-"
 SUBSECTION_BORDER_CHAR = "-"
 
 
@@ -50,12 +50,6 @@ def print_header(title: str, color: str = Fore.CYAN) -> None:
     print("\n" + _line(HEADER_BORDER_CHAR))
     print(format_colored(title, color))
     print(_line(HEADER_BORDER_CHAR))
-
-
-def print_section(title: str, color: str = Fore.CYAN) -> None:
-    print("\n" + _line(SECTION_BORDER_CHAR))
-    print(format_colored(title, color))
-    print(_line(SECTION_BORDER_CHAR))
 
 
 def print_subsection(title: str, color: str = Fore.CYAN, leading_newline: bool = True) -> None:
@@ -99,70 +93,76 @@ def _verdict_color(threat_level: str) -> str:
             return Fore.GREEN
 
 
-def _item_label(result: dict) -> str:
-    item = str(result.get("item", ""))
-    if result.get("type") == "file":
+def _item_label(result: ScanResult) -> str:
+    item = result.item
+    if result.kind is ScanTargetKind.FILE:
         return f"File path: {item}"
-    if result.get("type") == "hash":
-        return f"SHA-256 hash: {result.get('file_hash', item)}"
+    if result.kind is ScanTargetKind.HASH:
+        return f"SHA-256 hash: {result.file_hash}" if result.file_hash else item
     return item
 
 
-def print_result(result: dict, index: int | None = None, total: int | None = None) -> None:
-    scan_type = "SHA-256 HASH SCAN" if result.get("type") == "hash" else "FILE SCAN"
+def print_result(result: ScanResult, index: int | None = None, total: int | None = None) -> None:
+    scan_type = "SHA-256 HASH SCAN" if result.kind is ScanTargetKind.HASH else "FILE SCAN"
     if index is not None and total is not None:
         print_header(f"ITEM {index}/{total} - {scan_type}", Fore.BLUE)
     elif index is not None:
         print_header(f"ITEM {index} - {scan_type}", Fore.BLUE)
     else:
         print_header(scan_type, Fore.BLUE)
-    if result.get("type") == "file":
-        print(f"File path: {result.get('item', '')}")
-        if result.get("file_hash"):
-            print(f"SHA-256 hash: {result['file_hash']}")
+    if result.kind is ScanTargetKind.FILE:
+        print(f"File path: {result.item}")
+        if result.file_hash:
+            print(f"SHA-256 hash: {result.file_hash}")
     else:
-        print(f"SHA-256 hash: {result.get('file_hash', '')}")
+        print(f"SHA-256 hash: {result.file_hash}")
 
-    if result.get("status") == "undetected":
-        print("\n" + format_colored("Undetected: No VirusTotal record found", Fore.YELLOW))
+    if result.status == ResultStatus.UNDETECTED:
+        if result.was_cached:
+            print("\n" + format_colored(result.message or "Using cached result", Fore.CYAN))
+            print()
+        else:
+            print()
+        print(format_colored("Undetected: No VirusTotal record found", Fore.YELLOW))
         return
-    if result.get("status") == "cancelled":
+    if result.status == ResultStatus.CANCELLED:
         print("\n" + format_colored("Cancelled by user", Fore.MAGENTA))
         return
-    if result.get("status") == "error":
-        print("\n" + format_colored(f"Error: {result.get('message', 'Unexpected error')}", Fore.RED))
+    if result.status == ResultStatus.ERROR:
+        print("\n" + format_colored(f"Error: {result.message or 'Unexpected error'}", Fore.RED))
         return
 
-    if result.get("was_uploaded"):
+    if result.was_uploaded:
         msg_color = Fore.MAGENTA
-    elif result.get("was_cached"):
+    elif result.was_cached:
         msg_color = Fore.CYAN
     else:
         msg_color = Fore.BLUE
-    print("\n" + format_colored(result.get("message", ""), msg_color))
-    detection_total = (
-        result.get("malicious", 0) + result.get("suspicious", 0)
-        + result.get("harmless", 0) + result.get("undetected", 0)
-    )
+    print("\n" + format_colored(result.message, msg_color))
+    detection_total = result.malicious + result.suspicious + result.harmless + result.undetected
     print_subsection("DETECTION RESULTS", Fore.WHITE)
-    print(f"   Malicious:  {format_colored(str(result.get('malicious', 0)), Fore.RED)}")
-    print(f"   Suspicious: {format_colored(str(result.get('suspicious', 0)), Fore.YELLOW)}")
-    print(f"   Harmless:   {format_colored(str(result.get('harmless', 0)), Fore.GREEN)}")
-    print(f"   Undetected: {result.get('undetected', 0)}")
+    print(f"   Malicious:  {format_colored(str(result.malicious), Fore.RED)}")
+    print(f"   Suspicious: {format_colored(str(result.suspicious), Fore.YELLOW)}")
+    print(f"   Harmless:   {format_colored(str(result.harmless), Fore.GREEN)}")
+    print(f"   Undetected: {result.undetected}")
     print(f"   Total:      {detection_total}")
-    threat = result.get("threat_level", "Clean")
+    threat = result.threat_level
     print(f"\nVerdict: {format_colored(threat, _verdict_color(threat))}")
 
 
-def print_scan_summary(results: list[dict]) -> None:
+def print_scan_summary(results: list[ScanResult]) -> None:
     if not results:
         return
     summary = build_summary(results)
-    error_items = [r for r in results if r.get("threat_level") == "Error"]
-    cancelled_items = [r for r in results if r.get("threat_level") == "Cancelled"]
-    undetected_items = [r for r in results if r.get("threat_level") == "Undetected"]
-    suspicious_items = [r for r in results if r.get("threat_level") == "Suspicious"]
-    malicious_items = [r for r in results if r.get("threat_level") == "Malicious"]
+    buckets: dict[ThreatLevel, list[ScanResult]] = {ThreatLevel.ERROR: [], ThreatLevel.CANCELLED: [], ThreatLevel.UNDETECTED: [], ThreatLevel.SUSPICIOUS: [], ThreatLevel.MALICIOUS: []}
+    for r in results:
+        if r.threat_level in buckets:
+            buckets[r.threat_level].append(r)
+    error_items = buckets[ThreatLevel.ERROR]
+    cancelled_items = buckets[ThreatLevel.CANCELLED]
+    undetected_items = buckets[ThreatLevel.UNDETECTED]
+    suspicious_items = buckets[ThreatLevel.SUSPICIOUS]
+    malicious_items = buckets[ThreatLevel.MALICIOUS]
 
     print()
     print(_line(HEADER_BORDER_CHAR))
@@ -186,11 +186,11 @@ def print_scan_summary(results: list[dict]) -> None:
     if malicious_items:
         print_subsection("MALICIOUS ITEMS", Fore.RED, leading_newline=False)
         for item in malicious_items:
-            print(f"  - {_item_label(item)} ({item.get('malicious', 0)} detections)")
+            print(f"  - {_item_label(item)} ({item.malicious} detections)")
     if suspicious_items:
         print_subsection("SUSPICIOUS ITEMS", Fore.YELLOW, leading_newline=False)
         for item in suspicious_items:
-            detections = int(item.get("malicious", 0)) + int(item.get("suspicious", 0))
+            detections = item.malicious + item.suspicious
             print(f"  - {_item_label(item)} ({detections} detections)")
     if undetected_items:
         print_subsection("UNDETECTED ITEMS", Fore.CYAN, leading_newline=False)
@@ -203,7 +203,7 @@ def print_scan_summary(results: list[dict]) -> None:
     if error_items:
         print_subsection("ERRORS", Fore.RED, leading_newline=False)
         for item in error_items:
-            print(f"  - {_item_label(item)} ({item.get('message', 'Unexpected error')})")
+            print(f"  - {_item_label(item)} ({item.message or 'Unexpected error'})")
 
     print()
     print(HEADER_BORDER_CHAR * SEPARATOR_WIDTH + "\n")

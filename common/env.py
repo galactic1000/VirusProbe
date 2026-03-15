@@ -16,15 +16,11 @@ else:
 DOTENV_PATH: Path = BASE_DIR / ".env"
 
 API_KEY_ENV_VAR = "VT_API_KEY"
-
 RPM_ENV_VAR = "VT_REQUESTS_PER_MINUTE"
-
 WORKERS_ENV_VAR = "VT_WORKERS"
-
 UPLOAD_TIMEOUT_ENV_VAR = "VT_UPLOAD_TIMEOUT"
 
 UPLOAD_MODE_ENV_VAR = "VT_GUI_UPLOAD_MODE"
-# Valid values for UPLOAD_MODE_ENV_VAR:
 UPLOAD_NEVER = "never"
 UPLOAD_MANUAL = "manual"
 UPLOAD_AUTO = "auto"
@@ -45,78 +41,74 @@ def is_valid_api_key(key: str) -> bool:
     return len(key) == _VT_API_KEY_LENGTH and all(c in HEX_CHARS for c in key)
 
 
+def _get_int_env(var: str, minimum: int = 0) -> int | None:
+    raw = os.environ.get(var, "").strip()
+    if raw.isdecimal() and (n := int(raw)) >= minimum:
+        return n
+    return None
+
+
+def _get_enum_env(var: str, valid: tuple[str, ...], default: str) -> str:
+    raw = os.environ.get(var, "").strip().lower()
+    return raw if raw in valid else default
+
+
+def _save_env(var: str, value: str, *, quote_mode: str = "never") -> None:
+    dotenv.set_key(DOTENV_PATH, var, value, quote_mode=quote_mode)
+    os.environ[var] = value
+
+
 def get_api_key() -> str | None:
     value = os.environ.get(API_KEY_ENV_VAR, "").strip()
     return value or None
 
 
 def save_api_key_to_env(api_key: str) -> None:
-    dotenv.set_key(DOTENV_PATH, API_KEY_ENV_VAR, api_key, quote_mode="auto")
-    os.environ[API_KEY_ENV_VAR] = api_key
+    _save_env(API_KEY_ENV_VAR, api_key, quote_mode="auto")
 
 
 def get_requests_per_minute() -> int | None:
-    raw = os.environ.get(RPM_ENV_VAR, "").strip()
-    if raw.isdigit():
-        return int(raw)
-    return None
+    return _get_int_env(RPM_ENV_VAR)
 
 
 def save_requests_per_minute_to_env(rpm: int) -> None:
-    dotenv.set_key(DOTENV_PATH, RPM_ENV_VAR, str(rpm), quote_mode="never")
-    os.environ[RPM_ENV_VAR] = str(rpm)
+    _save_env(RPM_ENV_VAR, str(rpm))
 
 
 def get_workers() -> int | None:
-    raw = os.environ.get(WORKERS_ENV_VAR, "").strip()
-    if raw.isdigit() and int(raw) >= 1:
-        return int(raw)
-    return None
+    return _get_int_env(WORKERS_ENV_VAR, minimum=1)
 
 
 def save_workers_to_env(workers: int) -> None:
-    dotenv.set_key(DOTENV_PATH, WORKERS_ENV_VAR, str(workers), quote_mode="never")
-    os.environ[WORKERS_ENV_VAR] = str(workers)
+    _save_env(WORKERS_ENV_VAR, str(workers))
 
 
 def get_upload_timeout_minutes() -> int | None:
-    raw = os.environ.get(UPLOAD_TIMEOUT_ENV_VAR, "").strip()
-    if raw.isdigit() and int(raw) >= 0:
-        return int(raw)
-    return None
+    return _get_int_env(UPLOAD_TIMEOUT_ENV_VAR)
 
 
 def save_upload_timeout_minutes_to_env(timeout_minutes: int) -> None:
-    dotenv.set_key(DOTENV_PATH, UPLOAD_TIMEOUT_ENV_VAR, str(timeout_minutes), quote_mode="never")
-    os.environ[UPLOAD_TIMEOUT_ENV_VAR] = str(timeout_minutes)
+    _save_env(UPLOAD_TIMEOUT_ENV_VAR, str(timeout_minutes))
 
 
 def get_upload_mode() -> str:
-    raw = os.environ.get(UPLOAD_MODE_ENV_VAR, "").strip().lower()
-    if raw in (UPLOAD_MANUAL, UPLOAD_AUTO):
-        return raw
-    return UPLOAD_NEVER
+    return _get_enum_env(UPLOAD_MODE_ENV_VAR, (UPLOAD_MANUAL, UPLOAD_AUTO), UPLOAD_NEVER)
 
 
 def save_upload_mode_to_env(mode: str) -> None:
     if mode not in (UPLOAD_NEVER, UPLOAD_MANUAL, UPLOAD_AUTO):
         mode = UPLOAD_NEVER
-    dotenv.set_key(DOTENV_PATH, UPLOAD_MODE_ENV_VAR, mode, quote_mode="never")
-    os.environ[UPLOAD_MODE_ENV_VAR] = mode
+    _save_env(UPLOAD_MODE_ENV_VAR, mode)
 
 
 def get_theme_mode() -> str:
-    raw = os.environ.get(THEME_MODE_ENV_VAR, "").strip().lower()
-    if raw in (THEME_DARK, THEME_LIGHT):
-        return raw
-    return THEME_AUTO
+    return _get_enum_env(THEME_MODE_ENV_VAR, (THEME_DARK, THEME_LIGHT), THEME_AUTO)
 
 
 def save_theme_mode_to_env(mode: str) -> None:
     if mode not in (THEME_AUTO, THEME_DARK, THEME_LIGHT):
         mode = THEME_AUTO
-    dotenv.set_key(DOTENV_PATH, THEME_MODE_ENV_VAR, mode, quote_mode="never")
-    os.environ[THEME_MODE_ENV_VAR] = mode
+    _save_env(THEME_MODE_ENV_VAR, mode)
 
 
 def remove_api_key_from_env() -> bool:

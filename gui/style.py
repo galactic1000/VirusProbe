@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import subprocess
-import sys
 import tkinter as tk
 
 from ttkbootstrap import Style
@@ -19,19 +18,16 @@ if IS_WINDOWS:
 _LIGHT_THEME = "flatly"
 _DARK_THEME = "darkly"
 _DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-_system_dark: bool | None = None
+_LINUX_COLOR_SCHEME_RE = re.compile(r"uint32\s+(\d+)")
 
 
 def theme_name(theme_mode: str) -> str:
-    global _system_dark
     mode = (theme_mode or "auto").strip().lower()
     if mode == "dark":
         return _DARK_THEME
     if mode == "light":
         return _LIGHT_THEME
-    if _system_dark is None:
-        _system_dark = _system_prefers_dark_mode()
-    return _DARK_THEME if _system_dark else _LIGHT_THEME
+    return _DARK_THEME if _system_prefers_dark_mode() else _LIGHT_THEME
 
 
 def apply_theme(root: tk.Tk, theme_mode: str = "auto") -> None:
@@ -40,7 +36,6 @@ def apply_theme(root: tk.Tk, theme_mode: str = "auto") -> None:
 
 
 def apply_titlebar_theme(widget: tk.Misc) -> None:
-    """Apply the current ttkbootstrap theme's dark/light mode to a dialog's title bar."""
     style = Style.get_instance()
     if style is None:
         return
@@ -115,7 +110,7 @@ def _linux_prefers_dark_mode() -> bool:
         )
         if proc.returncode != 0:
             return False
-        m = re.search(r"uint32\s+(\d+)", proc.stdout)
+        m = _LINUX_COLOR_SCHEME_RE.search(proc.stdout)
         if not m:
             return False
         return int(m.group(1)) == 1

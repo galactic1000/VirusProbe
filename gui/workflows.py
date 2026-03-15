@@ -1,74 +1,83 @@
-"""Background scan and upload workflow logic for VirusProbe GUI."""
+"""Scan and upload workflows."""
 
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
 from threading import Event
-from typing import Any, Callable
+from collections.abc import Callable
 
-from common import ScannerService
+from common import ResultStatus, ScanResult, ScanTarget, ScanTargetKind, ScannerService, UploadTarget, write_report
 
 
 @dataclass
 class ScanWorkflowResult:
-    results: list[dict[str, Any]]
     completed: int
     total: int
     cancelled: bool
     entry_iids: list[str]
 
 
+@dataclass(frozen=True)
+class PendingScanEntry:
+    iid: str
+    kind: ScanTargetKind
+    value: str
+
+
 async def run_scan_workflow_async(
     scanner: ScannerService,
-    ordered_entries: list[tuple[str, str, str]],
+    ordered_entries: list[PendingScanEntry],
     cancel_event: Event,
-    on_result: Callable[[dict[str, Any], str | None, int, int], None],
+    on_result: Callable[[ScanResult, str | None, int, int], None],
 ) -> ScanWorkflowResult:
     total = len(ordered_entries)
     completed = 0
-    new_results: list[dict[str, Any]] = []
-    entry_by_file: dict[str, str] = {}
-    entry_by_hash: dict[str, str] = {}
-    file_values: list[str] = []
-    hash_values: list[str] = []
-    for iid, item_type, value in ordered_entries:
-        if item_type == "file":
-            file_values.append(value)
-            entry_by_file[value] = iid
+    entry_by_file = {}
+    entry_by_hash = {}
+    targets = []
+    for entry in ordered_entries:
+        if entry.kind is ScanTargetKind.FILE:
+            entry_by_file[entry.value] = entry.iid
+            targets.append(ScanTarget.from_file_path(entry.value))
         else:
-            hash_values.append(value)
-            entry_by_hash[value.strip().lower()] = iid
+            entry_by_hash[entry.value.strip().lower()] = entry.iid
+            targets.append(ScanTarget.from_hash(entry.value))
 
-    def _on_result(result: dict[str, Any]) -> None:
+    def _on_result(result: ScanResult) -> None:
         nonlocal completed
-        new_results.append(result)
-        if str(result.get("type", "")) == "file":
-            iid = entry_by_file.get(str(result.get("item", "")))
+        if result.kind is ScanTargetKind.FILE:
+            iid = entry_by_file.get(result.item)
         else:
-            iid = entry_by_hash.get(str(result.get("file_hash", "")).lower())
+            iid = entry_by_hash.get(result.file_hash.lower())
         completed += 1
         on_result(result, iid, completed, total)
 
-    async with scanner.async_session(), asyncio.TaskGroup() as tg:
-        if file_values and not cancel_event.is_set():
-            tg.create_task(scanner.scan_files(file_values, on_result=_on_result, cancel_event=cancel_event))
-        if hash_values and not cancel_event.is_set():
-            tg.create_task(scanner.scan_hashes(hash_values, on_result=_on_result, cancel_event=cancel_event))
+    async with scanner:
+        if targets and not cancel_event.is_set():
+            await scanner.scan_targets(targets, on_result=_on_result, cancel_event=cancel_event)
 
     return ScanWorkflowResult(
-        results=new_results,
         completed=completed,
         total=total,
         cancelled=cancel_event.is_set(),
-        entry_iids=[iid for iid, _, _ in ordered_entries],
+        entry_iids=[entry.iid for entry in ordered_entries],
     )
 
 
 @dataclass
 class UploadWorkflowResult:
+    total: int
+    error_count: int
     cancelled: bool
     entry_iids: list[str]
+
+
+@dataclass(frozen=True)
+class PendingUploadEntry:
+    iid: str
+    file_path: str
+    file_hash: str
 
 
 def upload_completion_feedback(total: int, error_count: int) -> tuple[str, str, str, str]:
@@ -90,22 +99,49 @@ def upload_completion_feedback(total: int, error_count: int) -> tuple[str, str, 
 
 async def run_upload_workflow_async(
     scanner: ScannerService,
-    entries: list[tuple[str, str, str]],
+    entries: list[PendingUploadEntry],
     cancel_event: Event,
-    on_result: Callable[[dict[str, Any], str | None], None],
+    on_result: Callable[[ScanResult, str | None], None],
 ) -> UploadWorkflowResult:
-    """Upload files directly using known hashes, skipping the redundant VT lookup.
+    entry_by_file = {entry.file_path: entry.iid for entry in entries}
+    upload_entries = [UploadTarget(file_path=entry.file_path, file_hash=entry.file_hash) for entry in entries]
+    total = len(entries)
+    error_count = 0
 
-    entries: list of (iid, file_path, file_hash)
-    """
-    entry_by_file = {file_path: iid for iid, file_path, _ in entries}
-    upload_entries = [(file_path, file_hash) for _, file_path, file_hash in entries]
-
-    def _on_result(result: dict[str, Any]) -> None:
-        file_path = str(result.get("item", ""))
-        iid = entry_by_file.get(file_path)
+    def _on_result(result: ScanResult) -> None:
+        nonlocal error_count
+        iid = entry_by_file.get(result.item)
+        if result.status == ResultStatus.ERROR:
+            error_count += 1
         on_result(result, iid)
 
-    async with scanner.async_session():
+    async with scanner:
         await scanner.upload_files_direct(upload_entries, on_result=_on_result, cancel_event=cancel_event)
-    return UploadWorkflowResult(cancelled=cancel_event.is_set(), entry_iids=[iid for iid, _, _ in entries])
+    return UploadWorkflowResult(
+        total=total,
+        error_count=error_count,
+        cancelled=cancel_event.is_set(),
+        entry_iids=[entry.iid for entry in entries],
+    )
+
+
+@dataclass(frozen=True)
+class ReportRequest:
+    new_dir: str
+    output_path: str
+    report_format: str
+
+
+async def run_report_workflow_async(
+    results: list[ScanResult],
+    request: ReportRequest,
+    separator_width: int,
+) -> ReportRequest:
+    await asyncio.to_thread(
+        write_report,
+        results,
+        request.output_path,
+        request.report_format,
+        separator_width,
+    )
+    return request

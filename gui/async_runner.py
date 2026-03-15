@@ -1,4 +1,4 @@
-"""Persistent background asyncio runner for GUI work."""
+"""Background asyncio runner."""
 
 from __future__ import annotations
 

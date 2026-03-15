@@ -10,6 +10,7 @@ from collections import OrderedDict
 from pathlib import Path
 
 from .env import BASE_DIR
+from .models import CacheEntry
 
 CACHE_DB: Path = BASE_DIR / ".cache" / "vt_cache.db"
 
@@ -18,6 +19,9 @@ class ScanCache:
     _TRIM_INTERVAL_WRITES = 50
     _WAL_AUTOCHECKPOINT_PAGES = 1000
     _CACHE_SIZE_KIB = 4096
+    _RESULT_TYPE_STATS = 0
+    _RESULT_TYPE_NOT_FOUND = 1
+    _DEFAULT_NOT_FOUND_EXPIRY_SECONDS = 24 * 60 * 60
 
     def __init__(
         self,
@@ -28,8 +32,9 @@ class ScanCache:
     ) -> None:
         self.cache_db = cache_db
         self._expiry_seconds: int = cache_expiry_days * 24 * 60 * 60
+        self._not_found_expiry_seconds = self._DEFAULT_NOT_FOUND_EXPIRY_SECONDS
         self._max_rows = cache_max_rows
-        self._memory: OrderedDict[str, tuple[tuple[int, int, int, int], int]] = OrderedDict()
+        self._memory: OrderedDict[str, tuple[tuple[int, int, int, int], int, int]] = OrderedDict()
         self._memory_max = memory_cache_max_entries
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.Lock()
@@ -83,22 +88,31 @@ class ScanCache:
         return deleted
 
     def get(self, file_hash: str) -> tuple[int, int, int, int] | None:
+        entry = self.get_entry(file_hash)
+        if entry is None:
+            return None
+        if entry.is_not_found:
+            return None
+        return entry.stats
+
+    def get_entry(self, file_hash: str) -> CacheEntry | None:
         with self._lock:
-            stats = self._memory_get(file_hash)
-            if stats is not None:
-                return stats
+            entry = self._memory_get_entry(file_hash)
+            if entry is not None:
+                return entry
 
             conn = self._get_conn()
             cursor = conn.cursor()
             hash_bytes = bytes.fromhex(file_hash)
-            cutoff_ts = self._cutoff_ts()
-            cursor.execute("SELECT stats, timestamp FROM scans WHERE hash = ?", (hash_bytes,))
+            cursor.execute("SELECT stats, timestamp, result_type FROM scans WHERE hash = ?", (hash_bytes,))
             if row := cursor.fetchone():
-                stats_blob, timestamp = row
-                if int(timestamp) >= cutoff_ts:
+                stats_blob, timestamp, result_type = row
+                entry_timestamp = int(timestamp)
+                entry_result_type = int(result_type)
+                if entry_timestamp >= self._cutoff_ts(entry_result_type):
                     stats = struct.unpack(">4I", stats_blob)
-                    self._memory_set(file_hash, stats, int(timestamp))
-                    return stats
+                    self._memory_set(file_hash, stats, entry_timestamp, entry_result_type)
+                    return CacheEntry(stats=stats, is_not_found=entry_result_type == self._RESULT_TYPE_NOT_FOUND)
                 original_row_count = self._row_count
                 cursor.execute("DELETE FROM scans WHERE hash = ?", (hash_bytes,))
                 if cursor.rowcount > 0:
@@ -111,11 +125,17 @@ class ScanCache:
                     raise
         return None
 
-    def peek_memory(self, file_hash: str) -> tuple[int, int, int, int] | None:
+    def peek_memory_entry(self, file_hash: str) -> CacheEntry | None:
         with self._lock:
-            return self._memory_get(file_hash)
+            return self._memory_get_entry(file_hash)
 
     def save(self, file_hash: str, stats: tuple[int, int, int, int]) -> None:
+        self._save_entry(file_hash, stats, self._RESULT_TYPE_STATS)
+
+    def save_not_found(self, file_hash: str) -> None:
+        self._save_entry(file_hash, (0, 0, 0, 0), self._RESULT_TYPE_NOT_FOUND)
+
+    def _save_entry(self, file_hash: str, stats: tuple[int, int, int, int], result_type: int) -> None:
         with self._lock:
             conn = self._get_conn()
             cursor = conn.cursor()
@@ -123,22 +143,35 @@ class ScanCache:
             packed_stats = struct.pack(">4I", *stats)
             timestamp = int(time.time())
             cutoff_ts = timestamp - self._expiry_seconds
+            not_found_cutoff_ts = timestamp - self._not_found_expiry_seconds
             original_row_count = self._row_count
             original_writes_since_trim = self._writes_since_trim
             cursor.execute(
-                "INSERT OR IGNORE INTO scans (hash, stats, timestamp) VALUES (?, ?, ?)",
-                (hash_bytes, packed_stats, timestamp),
+                "INSERT OR IGNORE INTO scans (hash, stats, timestamp, result_type) VALUES (?, ?, ?, ?)",
+                (hash_bytes, packed_stats, timestamp, result_type),
             )
             if cursor.rowcount > 0:
                 self._row_count += 1
             else:
                 cursor.execute(
-                    "UPDATE scans SET stats = ?, timestamp = ? WHERE hash = ?",
-                    (packed_stats, timestamp, hash_bytes),
+                    "UPDATE scans SET stats = ?, timestamp = ?, result_type = ? WHERE hash = ?",
+                    (packed_stats, timestamp, result_type, hash_bytes),
                 )
             self._writes_since_trim += 1
             if self._writes_since_trim >= self._TRIM_INTERVAL_WRITES:
-                cursor.execute("DELETE FROM scans WHERE timestamp < ?", (cutoff_ts,))
+                cursor.execute(
+                    """
+                    DELETE FROM scans
+                    WHERE (result_type = ? AND timestamp < ?)
+                       OR (result_type = ? AND timestamp < ?)
+                    """,
+                    (
+                        self._RESULT_TYPE_STATS,
+                        cutoff_ts,
+                        self._RESULT_TYPE_NOT_FOUND,
+                        not_found_cutoff_ts,
+                    ),
+                )
                 if cursor.rowcount > 0:
                     self._row_count = max(0, self._row_count - cursor.rowcount)
                 self._writes_since_trim = 0
@@ -150,13 +183,14 @@ class ScanCache:
                 self._row_count = original_row_count
                 self._writes_since_trim = original_writes_since_trim
                 raise
-            self._memory_set(file_hash, stats, timestamp)
+            self._memory_set(file_hash, stats, timestamp, result_type)
 
     _CREATE_SQL = (
         "CREATE TABLE IF NOT EXISTS scans ("
         "hash BLOB PRIMARY KEY, "
         "stats BLOB NOT NULL, "
-        "timestamp INTEGER NOT NULL"
+        "timestamp INTEGER NOT NULL, "
+        "result_type INTEGER NOT NULL DEFAULT 0"
         ") WITHOUT ROWID"
     )
 
@@ -164,7 +198,7 @@ class ScanCache:
     def _has_required_columns(cursor: sqlite3.Cursor) -> bool:
         cursor.execute("PRAGMA table_info(scans)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        return {"hash", "stats", "timestamp"}.issubset(existing_columns)
+        return {"hash", "stats", "timestamp", "result_type"}.issubset(existing_columns)
 
     @staticmethod
     def _is_without_rowid(cursor: sqlite3.Cursor) -> bool:
@@ -186,11 +220,15 @@ class ScanCache:
                 CREATE TABLE scans_new (
                     hash BLOB PRIMARY KEY,
                     stats BLOB NOT NULL,
-                    timestamp INTEGER NOT NULL
+                    timestamp INTEGER NOT NULL,
+                    result_type INTEGER NOT NULL DEFAULT 0
                 ) WITHOUT ROWID
                 """
             )
-            cursor.execute("INSERT OR REPLACE INTO scans_new (hash, stats, timestamp) SELECT hash, stats, timestamp FROM scans")
+            cursor.execute(
+                "INSERT OR REPLACE INTO scans_new (hash, stats, timestamp, result_type) "
+                "SELECT hash, stats, timestamp, result_type FROM scans"
+            )
             cursor.execute("DROP TABLE scans")
             cursor.execute("ALTER TABLE scans_new RENAME TO scans")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_scans_timestamp ON scans(timestamp)")
@@ -213,7 +251,20 @@ class ScanCache:
                 self._row_count = max(0, self._row_count - cursor.rowcount)
 
     def _prune_locked(self, cursor: sqlite3.Cursor) -> None:
-        cursor.execute("DELETE FROM scans WHERE timestamp < ?", (self._cutoff_ts(),))
+        now = int(time.time())
+        cursor.execute(
+            """
+            DELETE FROM scans
+            WHERE (result_type = ? AND timestamp < ?)
+               OR (result_type = ? AND timestamp < ?)
+            """,
+            (
+                self._RESULT_TYPE_STATS,
+                now - self._expiry_seconds,
+                self._RESULT_TYPE_NOT_FOUND,
+                now - self._not_found_expiry_seconds,
+            ),
+        )
         if cursor.rowcount > 0:
             self._row_count = max(0, self._row_count - cursor.rowcount)
         self._enforce_row_cap_locked(cursor)
@@ -223,30 +274,38 @@ class ScanCache:
         cursor.execute("SELECT COUNT(*) FROM scans")
         return int(cursor.fetchone()[0])
 
-    def _cutoff_ts(self) -> int:
-        return int(time.time()) - self._expiry_seconds
+    def _cutoff_ts(self, result_type: int = _RESULT_TYPE_STATS) -> int:
+        expiry = self._not_found_expiry_seconds if result_type == self._RESULT_TYPE_NOT_FOUND else self._expiry_seconds
+        return int(time.time()) - expiry
 
     @staticmethod
     def _rollback_conn(conn: sqlite3.Connection) -> None:
         try:
             conn.rollback()
-        except Exception:
+        except sqlite3.Error:
             pass
 
-    def _memory_get(self, file_hash: str) -> tuple[int, int, int, int] | None:
+    def _memory_get_entry(self, file_hash: str) -> CacheEntry | None:
         result = self._memory.get(file_hash)
         if result is not None:
-            stats, timestamp = result
-            if timestamp < self._cutoff_ts():
+            stats, timestamp, result_type = result
+            if timestamp < self._cutoff_ts(result_type):
                 self._memory.pop(file_hash, None)
                 return None
             self._memory.move_to_end(file_hash)
-            return stats
+            return CacheEntry(stats=stats, is_not_found=result_type == self._RESULT_TYPE_NOT_FOUND)
         return None
 
-    def _memory_set(self, file_hash: str, stats: tuple[int, int, int, int], timestamp: int) -> None:
-        self._memory[file_hash] = (stats, timestamp)
-        self._memory.move_to_end(file_hash)
+    def _memory_set(
+        self,
+        file_hash: str,
+        stats: tuple[int, int, int, int],
+        timestamp: int,
+        result_type: int,
+    ) -> None:
+        if file_hash in self._memory:
+            self._memory.move_to_end(file_hash)
+        self._memory[file_hash] = (stats, timestamp, result_type)
         if len(self._memory) > self._memory_max:
             self._memory.popitem(last=False)
 

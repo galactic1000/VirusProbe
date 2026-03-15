@@ -2,20 +2,23 @@
 
 from __future__ import annotations
 
-import sys
 import tkinter as tk
-from typing import Callable
+from collections.abc import Callable
 
 import ttkbootstrap as ttk
-from ttkbootstrap.tableview import Tableview
 from ttkbootstrap.widgets import ToolTip
+from ttkbootstrap.widgets.tableview import Tableview
 from tkinterdnd2 import DND_FILES
+
+from common import ScanTargetKind
+from .os_detect import IS_WINDOWS, IS_MACOS
+from .workflows import PendingScanEntry
 
 
 def _ui_font() -> str:
-    if sys.platform.startswith("win"):
+    if IS_WINDOWS:
         return "Segoe UI"
-    if sys.platform == "darwin":
+    if IS_MACOS:
         return "Helvetica Neue"
     return "Noto Sans"
 
@@ -49,8 +52,8 @@ class MainWindow:
         on_generate_report: Callable[[], None],
     ) -> None:
         self.root = root
-        self._item_keys: set[tuple[str, str]] = set()
-        self._tooltips: list[ToolTip] = []
+        self._item_keys = set()
+        self._tooltips = []
         self.api_status_var = tk.StringVar(value="API Key: Not Set")
         self.upload_indicator_var = tk.StringVar(value="")
         self.progress_var = tk.StringVar(value="Ready")
@@ -213,10 +216,12 @@ class MainWindow:
 
     def set_controls_enabled(self, enabled: bool) -> None:
         state = tk.NORMAL if enabled else tk.DISABLED
+        self.add_menu_btn.configure(state=state)
         self.remove_btn.configure(state=state)
         self.clear_btn.configure(state=state)
         self.set_api_key_btn.configure(state=state)
         self.clear_cache_btn.configure(state=state)
+        self.advanced_btn.configure(state=state)
 
     def set_scan_button_scan(self, on_scan: Callable[[], None]) -> None:
         self.scan_btn.configure(state=tk.NORMAL, text="Scan", command=on_scan)
@@ -245,26 +250,43 @@ class MainWindow:
         self.progress_bar.configure(maximum=total, value=min(completed, total))
         self.progress_gauge_var.set(f"{min(completed, total)}/{total}")
 
+    @staticmethod
+    def _normalize_item_value(item_type: str, value: str) -> str:
+        if item_type == ScanTargetKind.HASH:
+            return value.strip().lower()
+        return value
+
+    @classmethod
+    def _item_key(cls, item_type: str, value: str) -> tuple[str, str]:
+        return item_type, cls._normalize_item_value(item_type, value)
+
     def add_item(self, item_type: str, value: str) -> bool:
-        key = (item_type, value)
+        key = self._item_key(item_type, value)
         if key in self._item_keys:
             return False
         self._item_keys.add(key)
-        self.table.insert_row("end", [item_type, value, "Pending"])
+        self.table.insert_row("end", [item_type, key[1], "Pending"])
         self._update_empty_state()
         return True
 
-    def remove_selected(self) -> bool:
+    @property
+    def separator_width(self) -> int:
+        return max(72, int(self.root.winfo_width()))
+
+    def remove_selected(self) -> list[tuple[str, str]]:
         selected_rows = self.table.get_rows(selected=True)
         if not selected_rows:
-            return False
+            return []
+        removed_keys = []
         for row in selected_rows:
             values = row.values
             if len(values) >= 2:
-                self._item_keys.discard((str(values[0]), str(values[1])))
+                key = self._item_key(str(values[0]), str(values[1]))
+                removed_keys.append(key)
+                self._item_keys.discard(key)
         self.table.delete_rows(iids=[row.iid for row in selected_rows])
         self._update_empty_state()
-        return True
+        return removed_keys
 
     def clear_items(self) -> None:
         self.table.delete_rows()
@@ -274,16 +296,29 @@ class MainWindow:
     def item_count(self) -> int:
         return len(self.table.tablerows)
 
-    def collect_pending_entries(self) -> list[tuple[str, str, str]]:
-        files: list[tuple[str, str, str]] = []
-        hashes: list[tuple[str, str, str]] = []
+    def collect_pending_entries(self) -> list[PendingScanEntry]:
+        entries = []
         for row in self.table.get_rows():
             values = row.values
             if len(values) < 3 or str(values[2]) != "Pending":
                 continue
-            entry = (str(row.iid), str(values[0]), str(values[1]))
-            (files if entry[1] == "file" else hashes).append(entry)
-        return files + hashes
+            entries.append(
+                PendingScanEntry(
+                    iid=str(row.iid),
+                    kind=ScanTargetKind(str(values[0])),
+                    value=str(values[1]),
+                )
+            )
+        return entries
+
+    def result_keys_in_order(self) -> list[tuple[str, str]]:
+        keys = []
+        for row in self.table.get_rows():
+            values = row.values
+            if len(values) < 2:
+                continue
+            keys.append(self._item_key(str(values[0]), str(values[1])))
+        return keys
 
     def set_row_status(self, iid: str, status: str) -> None:
         row = self.table.get_row(iid=iid)
@@ -311,10 +346,10 @@ class MainWindow:
         return bool(self.undetected_files())
 
     def undetected_files(self, selected_only: bool = False) -> list[tuple[str, str]]:
-        entries: list[tuple[str, str]] = []
+        entries = []
         for row in self.table.get_rows(selected=selected_only):
             values = row.values
-            if len(values) >= 3 and str(values[0]) == "file" and str(values[2]) == "Undetected":
+            if len(values) >= 3 and str(values[0]) == ScanTargetKind.FILE and str(values[2]) == "Undetected":
                 entries.append((str(row.iid), str(values[1])))
         return entries
 

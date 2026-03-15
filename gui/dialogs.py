@@ -5,21 +5,22 @@ from __future__ import annotations
 import textwrap
 from datetime import datetime
 from pathlib import Path
-from typing import Callable
+from collections.abc import Callable
 import tkinter as tk
 from tkinter import filedialog
 
 import ttkbootstrap as ttk
-from ttkbootstrap.dialogs.dialogs import Messagebox
+from ttkbootstrap.dialogs import Messagebox
 from ttkbootstrap.dialogs.base import Dialog
 from ttkbootstrap.dialogs.query import QueryDialog
 
-from common import ScannerService, UPLOAD_AUTO, UPLOAD_MANUAL, UPLOAD_NEVER, THEME_AUTO, THEME_DARK, THEME_LIGHT, write_report
+from common import UPLOAD_AUTO, UPLOAD_MANUAL, UPLOAD_NEVER, THEME_AUTO, THEME_DARK, THEME_LIGHT
+from common import service_results
 from .style import apply_titlebar_theme
+from .workflows import ReportRequest
 
 
 class AppDialog(Dialog):
-    """Project-local dialog base with configurable sizing."""
 
     resizable = (False, False)
     minsize = (250, 15)
@@ -51,7 +52,6 @@ class AppDialog(Dialog):
 
 
 class MaskedDialog(QueryDialog):
-    """Query dialog variant that masks entry input."""
 
     def create_body(self, master: tk.Misc) -> None:
         frame = ttk.Frame(master, padding=self._padding)
@@ -72,7 +72,6 @@ class MaskedDialog(QueryDialog):
 
 
 class AddHashesDialog(AppDialog):
-    """Modal dialog for adding multiple hashes."""
 
     resizable = (True, True)
     minsize = (560, 360)
@@ -82,7 +81,7 @@ class AddHashesDialog(AppDialog):
         super().__init__(parent, "Add SHA-256 Hashes")
         self._add_item = add_item
         self._status_var = tk.StringVar(value="")
-        self._text: tk.Text | None = None
+        self._text: tk.Text
 
     def create_body(self, master: tk.Misc) -> None:
         frame = ttk.Frame(master, padding=12)
@@ -111,8 +110,6 @@ class AddHashesDialog(AppDialog):
         ttk.Button(buttons, text="Cancel", command=self._toplevel.destroy, bootstyle="secondary").pack(side=tk.RIGHT, padx=(0, 8))
 
     def _add_hashes(self) -> None:
-        if self._text is None:
-            return
         raw = self._text.get("1.0", tk.END).strip()
         if not raw:
             self._status_var.set("No hashes provided.")
@@ -124,22 +121,24 @@ class AddHashesDialog(AppDialog):
             return
 
         added = 0
-        invalid: list[str] = []
+        invalid = []
         duplicates = 0
-        seen: set[str] = set()
+        seen = set()
         for token in tokens:
             value = token.lower()
             if value in seen:
                 duplicates += 1
                 continue
             seen.add(value)
-            if not ScannerService.is_sha256(value):
+            if not service_results.is_sha256(value):
                 invalid.append(token)
                 continue
             if self._add_item("hash", value):
                 added += 1
+            else:
+                duplicates += 1
 
-        parts: list[str] = [f"Added {added} hash{'es' if added != 1 else ''}."]
+        parts = [f"Added {added} hash{'es' if added != 1 else ''}."]
         if invalid:
             parts.append(f"Skipped {len(invalid)} invalid.")
         if duplicates:
@@ -150,7 +149,6 @@ class AddHashesDialog(AppDialog):
 
 
 class ReportSavedDialog(AppDialog):
-    """Dialog shown after report generation succeeds."""
 
     def __init__(
         self,
@@ -187,19 +185,17 @@ class ReportSavedDialog(AppDialog):
 
 
 class GenerateReportDialog(AppDialog):
-    """Dialog for configuring and generating a report."""
 
     _PORTABLE_INVALID_CHARS = set('/\\:*?"<>|')
 
-    def __init__(self, parent: tk.Tk, default_dir: str, results: list[dict]) -> None:
+    def __init__(self, parent: tk.Tk, default_dir: str) -> None:
         super().__init__(parent, "Generate Report")
         default_name = f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         self._default_dir = default_dir
-        self._results = results
         self._name_var = tk.StringVar(value=default_name)
         self._fmt_var = tk.StringVar(value="json")
         self._folder_var = tk.StringVar(value=default_dir)
-        self._result: dict[str, str] | None = None
+        self._result: ReportRequest | None = None
 
     def create_body(self, master: tk.Misc) -> None:
         frame = ttk.Frame(master, padding=12)
@@ -259,12 +255,12 @@ class GenerateReportDialog(AppDialog):
             return
 
         folder_path = Path(folder)
-        if not folder_path.exists() or not folder_path.is_dir():
+        if not folder_path.is_dir():
             Messagebox.show_error("Selected folder does not exist.", title="Invalid Folder", parent=self._toplevel)
             return
 
-        safe_name = Path(name).stem if "." in Path(name).name else name
-        safe_name = Path(safe_name).name.strip()
+        safe_name = Path(name).stem if "." in name else name
+        safe_name = safe_name.strip()
         if not self._is_portable_filename(safe_name):
             Messagebox.show_error(
                 "Use a portable filename (no / \\ : * ? \" < > |, control chars, trailing space/period).",
@@ -274,18 +270,14 @@ class GenerateReportDialog(AppDialog):
             return
 
         output_path = str(folder_path / f"{safe_name}.{fmt}")
-        try:
-            write_report(self._results, output_path, fmt)
-        except Exception as exc:
-            Messagebox.show_error(str(exc), title="Report Error", parent=self._toplevel)
-            return
-
-        self._result = {"new_dir": str(folder_path), "output_path": output_path}
+        self._result = ReportRequest(
+            new_dir=str(folder_path),
+            output_path=output_path,
+            report_format=fmt,
+        )
         self._toplevel.destroy()
 
-
 class AdvancedDialog(AppDialog):
-    """Dialog for advanced scan settings."""
 
     _MAX_WORKERS = 50
     _MAX_RPM = 500
@@ -322,7 +314,6 @@ class AdvancedDialog(AppDialog):
         ttk.Label(body, text="Theme:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
         theme_combo = ttk.Combobox(body, textvariable=self._theme_var, values=[v.title() for v in self._THEME_VALUES], state="readonly", width=12)
         theme_combo.grid(row=0, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
-        theme_combo.set(self._theme_var.get())
 
         ttk.Separator(body, orient=tk.HORIZONTAL).grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(0, 10))
 
@@ -406,17 +397,10 @@ def show_add_hashes_dialog(parent: tk.Tk, add_item: Callable[[str, str], bool]) 
 def show_generate_report_dialog(
     parent: tk.Tk,
     default_dir: str,
-    results: list[dict],
-    open_path: Callable[[str], None],
-    open_folder: Callable[[str], None],
-) -> str | None:
-    dialog = GenerateReportDialog(parent, default_dir, results)
+) -> ReportRequest | None:
+    dialog = GenerateReportDialog(parent, default_dir)
     dialog.show()
-    result = dialog._result
-    if not result:
-        return None
-    show_report_saved_dialog(parent, result["output_path"], open_path, open_folder)
-    return result["new_dir"]
+    return dialog._result
 
 
 def show_report_saved_dialog(
@@ -429,7 +413,6 @@ def show_report_saved_dialog(
 
 
 def show_set_api_key_dialog(parent: tk.Tk, current_key: str | None) -> str | None:
-    """Prompts for an API key. Returns the entered string, or None if cancelled."""
     dialog = MaskedDialog(
         prompt="Enter API key:",
         title="VirusTotal API Key",
@@ -440,27 +423,6 @@ def show_set_api_key_dialog(parent: tk.Tk, current_key: str | None) -> str | Non
     return dialog._result
 
 
-def show_clear_cache_dialog(parent: tk.Tk, clear_fn: Callable[[], int]) -> int | None:
-    """Confirms then calls clear_fn(). Returns deleted count, or None if cancelled/failed."""
-    result = Messagebox.yesno(
-        "Clear local SQLite cache now?",
-        title="Clear Cache",
-        parent=parent,
-        buttons=["No:secondary", "Yes:primary"],
-        default="Yes",
-    )
-    if result != "Yes":
-        return None
-    try:
-        deleted = clear_fn()
-        label = f"{deleted} entr{'y' if deleted == 1 else 'ies'}"
-        Messagebox.show_info(f"Cleared SQLite cache ({label}).", title="Cache Cleared", parent=parent)
-        return deleted
-    except Exception as exc:
-        Messagebox.show_error(str(exc), title="Cache Error", parent=parent)
-        return None
-
-
 def show_advanced_dialog(
     parent: tk.Tk,
     current_rpm: int,
@@ -469,15 +431,6 @@ def show_advanced_dialog(
     current_upload_mode: str = "never",
     current_theme_mode: str = "auto",
 ) -> tuple[int, int, int, str, str] | None:
-    """Shows Advanced Scan Settings.
-
-    Returns (rpm, workers, upload_timeout_minutes, upload_mode, theme_mode) on Apply, None on Cancel.
-    upload_mode is one of 'never', 'manual', 'auto'.
-    Checkbox mapping:
-      main OFF              -> 'never'
-      main ON, auto OFF     -> 'manual'  (toolbar Upload button; enabled when undetected files are selectable)
-      main ON, auto ON      -> 'auto'    (upload happens automatically)
-    """
     dialog = AdvancedDialog(parent, current_rpm, current_workers, current_upload_timeout, current_upload_mode, current_theme_mode)
     dialog.show()
     return dialog._result
