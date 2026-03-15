@@ -16,7 +16,6 @@ from common import (
     ScanResult,
     ScanTargetKind,
     ScannerService,
-    ThreatLevel,
     THEME_AUTO,
     THEME_DARK,
     THEME_LIGHT,
@@ -181,11 +180,12 @@ class AppModel:
 
     @staticmethod
     def result_status(result: ScanResult) -> str:
-        if result.status == ResultStatus.CANCELLED:
-            return "Cancelled"
-        if result.status == ResultStatus.ERROR:
-            return "Error"
-        if result.threat_level == ThreatLevel.UNDETECTED:
-            return "Undetected"
+        match result.status:
+            case ResultStatus.CANCELLED:
+                return "Cancelled"
+            case ResultStatus.ERROR:
+                return "Error"
+            case ResultStatus.UNDETECTED:
+                return "Undetected"
         prefix = "Uploaded - " if result.was_uploaded else ""
         return f"{prefix}{result.threat_level}"

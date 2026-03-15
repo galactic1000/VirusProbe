@@ -25,7 +25,7 @@ def theme_name(theme_mode: str) -> str:
     mode = (theme_mode or "auto").strip().lower()
     if mode == "dark":
         return _DARK_THEME
-    if mode == "light":
+    elif mode == "light":
         return _LIGHT_THEME
     return _DARK_THEME if _system_prefers_dark_mode() else _LIGHT_THEME
 

@@ -264,14 +264,14 @@ class VirusProbeGUI(ttk.Window):
             self.is_closing = True
             self._request_cancel("Cancelling scan before close...")
             return
-        if self.is_uploading:
+        elif self.is_uploading:
             self.is_closing = True
             self._request_cancel("Cancelling upload before close...")
             return
-        if self.is_clearing_cache:
+        elif self.is_clearing_cache:
             self.is_closing = True
             return
-        if self.is_generating_report:
+        elif self.is_generating_report:
             self.is_closing = True
             return
         self.model.close()

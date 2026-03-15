@@ -18,7 +18,7 @@ from .workflows import PendingScanEntry
 def _ui_font() -> str:
     if IS_WINDOWS:
         return "Segoe UI"
-    if IS_MACOS:
+    elif IS_MACOS:
         return "Helvetica Neue"
     return "Noto Sans"
 

@@ -72,7 +72,7 @@ def is_sha256(value: str) -> bool:
 def classify_threat(malicious: int, suspicious: int = 0) -> ThreatLevel:
     if malicious >= 10:
         return ThreatLevel.MALICIOUS
-    if malicious > 0 or suspicious >= 3:
+    elif malicious > 0 or suspicious >= 3:
         return ThreatLevel.SUSPICIOUS
     return ThreatLevel.CLEAN
 

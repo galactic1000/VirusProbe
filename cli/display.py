@@ -79,15 +79,15 @@ def print_banner() -> None:
     print(_hash_frame_line())
 
 
-def _verdict_color(threat_level: str) -> str:
+def _verdict_color(threat_level: ThreatLevel) -> str:
     match threat_level:
-        case "Cancelled":
+        case ThreatLevel.CANCELLED:
             return Fore.MAGENTA
-        case "Malicious":
+        case ThreatLevel.MALICIOUS:
             return Fore.RED
-        case "Suspicious":
+        case ThreatLevel.SUSPICIOUS:
             return Fore.YELLOW
-        case "Undetected":
+        case ThreatLevel.UNDETECTED:
             return Fore.CYAN
         case _:
             return Fore.GREEN
@@ -97,7 +97,7 @@ def _item_label(result: ScanResult) -> str:
     item = result.item
     if result.kind is ScanTargetKind.FILE:
         return f"File path: {item}"
-    if result.kind is ScanTargetKind.HASH:
+    elif result.kind is ScanTargetKind.HASH:
         return f"SHA-256 hash: {result.file_hash}" if result.file_hash else item
     return item
 
@@ -117,20 +117,21 @@ def print_result(result: ScanResult, index: int | None = None, total: int | None
     else:
         print(f"SHA-256 hash: {result.file_hash}")
 
-    if result.status == ResultStatus.UNDETECTED:
-        if result.was_cached:
-            print("\n" + format_colored(result.message or "Using cached result", Fore.CYAN))
-            print()
-        else:
-            print()
-        print(format_colored("Undetected: No VirusTotal record found", Fore.YELLOW))
-        return
-    if result.status == ResultStatus.CANCELLED:
-        print("\n" + format_colored("Cancelled by user", Fore.MAGENTA))
-        return
-    if result.status == ResultStatus.ERROR:
-        print("\n" + format_colored(f"Error: {result.message or 'Unexpected error'}", Fore.RED))
-        return
+    match result.status:
+        case ResultStatus.UNDETECTED:
+            if result.was_cached:
+                print("\n" + format_colored(result.message or "Using cached result", Fore.CYAN))
+                print()
+            else:
+                print()
+            print(format_colored("Undetected: No VirusTotal record found", Fore.YELLOW))
+            return
+        case ResultStatus.CANCELLED:
+            print("\n" + format_colored("Cancelled by user", Fore.MAGENTA))
+            return
+        case ResultStatus.ERROR:
+            print("\n" + format_colored(f"Error: {result.message or 'Unexpected error'}", Fore.RED))
+            return
 
     if result.was_uploaded:
         msg_color = Fore.MAGENTA

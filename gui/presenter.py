@@ -18,7 +18,7 @@ def masked_api_key_text(api_key: str | None) -> str:
 def upload_indicator_text(upload_mode: str) -> str:
     if upload_mode == UPLOAD_AUTO:
         return "[Upload: auto]"
-    if upload_mode == UPLOAD_MANUAL:
+    elif upload_mode == UPLOAD_MANUAL:
         return "[Upload: manual]"
     return ""
 
