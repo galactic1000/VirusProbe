@@ -211,4 +211,4 @@ pip install -r requirements-test.txt
 pytest -q
 ```
 
-Tests cover CLI, caching, scanning, uploading, rate limiting, and reporting.
+Tests cover the full stack: CLI, service layer, caching, and GUI logic.
