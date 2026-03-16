@@ -177,7 +177,9 @@ class VirusProbeGUI(ttk.Window):
         if self._is_busy:
             return
         for path in filedialog.askopenfilenames(parent=self, title="Select files to scan"):
-            self._add_item("file", str(path))
+            file_path = str(path)
+            if Path(file_path).is_file():
+                self._add_item("file", file_path)
 
     def on_add_hashes(self) -> None:
         if self._is_busy:
