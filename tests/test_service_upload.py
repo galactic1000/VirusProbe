@@ -209,19 +209,19 @@ async def test_small_file_rate_limited_once(file_factory, limiter, upload_client
 
 
 async def test_large_file_rate_limited_twice(
-    file_factory, mocker, limiter, upload_client_factory
+    file_factory, monkeypatch, limiter, upload_client_factory
 ) -> None:
     sample = file_factory("large.bin", b"large")
     fake_client = upload_client_factory(analysis_id="analysis-large", large=True)
-    mocker.patch("common.service_upload._UPLOAD_SIZE_THRESHOLD", 1)
+    monkeypatch.setattr("common.service_upload._UPLOAD_SIZE_THRESHOLD", 1)
     analysis_id = await service_upload.upload_file_async(fake_client, limiter, str(sample))  # type: ignore[arg-type]
     assert analysis_id == "analysis-large"
     assert limiter.acquire.await_count == 2
 
 
-async def test_rejects_over_650mb(file_factory, mocker, limiter) -> None:
+async def test_rejects_over_650mb(file_factory, monkeypatch, limiter) -> None:
     sample = file_factory("too_big.bin")
-    mocker.patch("common.service_upload._UPLOAD_MAX_SIZE", 0)
+    monkeypatch.setattr("common.service_upload._UPLOAD_MAX_SIZE", 0)
     with pytest.raises(ValueError, match="max 650 MB"):
         await service_upload.upload_file_async(object(), limiter, str(sample))  # type: ignore[arg-type]
 

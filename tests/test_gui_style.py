@@ -101,17 +101,12 @@ def test_windows_dark_mode_exception(mocker) -> None:
 
 
 def test_macos_dark_mode_true(mocker) -> None:
-    proc = mocker.MagicMock()
-    proc.returncode = 0
-    proc.stdout = "Dark\n"
-    mocker.patch("gui.style.subprocess.run", return_value=proc)
+    mocker.patch("gui.style.subprocess.run", return_value=mocker.MagicMock(returncode=0, stdout="Dark\n"))
     assert _macos_prefers_dark_mode() is True
 
 
 def test_macos_dark_mode_false_returncode(mocker) -> None:
-    proc = mocker.MagicMock()
-    proc.returncode = 1
-    mocker.patch("gui.style.subprocess.run", return_value=proc)
+    mocker.patch("gui.style.subprocess.run", return_value=mocker.MagicMock(returncode=1))
     assert _macos_prefers_dark_mode() is False
 
 
@@ -131,17 +126,12 @@ def test_macos_dark_mode_exception(mocker) -> None:
     ("nothing useful", False),           # no regex match
 ])
 def test_linux_dark_mode_stdout(mocker, stdout, expected) -> None:
-    proc = mocker.MagicMock()
-    proc.returncode = 0
-    proc.stdout = stdout
-    mocker.patch("gui.style.subprocess.run", return_value=proc)
+    mocker.patch("gui.style.subprocess.run", return_value=mocker.MagicMock(returncode=0, stdout=stdout))
     assert _linux_prefers_dark_mode() is expected
 
 
 def test_linux_dark_mode_bad_returncode(mocker) -> None:
-    proc = mocker.MagicMock()
-    proc.returncode = 1
-    mocker.patch("gui.style.subprocess.run", return_value=proc)
+    mocker.patch("gui.style.subprocess.run", return_value=mocker.MagicMock(returncode=1))
     assert _linux_prefers_dark_mode() is False
 
 
@@ -165,9 +155,7 @@ def test_apply_bootstrap_theme(mocker, mode, expected) -> None:
 
 
 def test_apply_bootstrap_theme_exception(mocker) -> None:
-    mock_style = mocker.MagicMock()
-    mock_style.theme_use.side_effect = Exception("no style")
-    mocker.patch("gui.style.Style.get_instance", return_value=mock_style)
+    mocker.patch("gui.style.Style.get_instance", return_value=mocker.MagicMock(**{"theme_use.side_effect": Exception("no style")}))
     assert _apply_bootstrap_theme("dark") is False
 
 
@@ -185,9 +173,7 @@ def test_apply_titlebar_theme_with_dark_theme(monkeypatch, mocker) -> None:
     monkeypatch.setattr("gui.style.IS_WINDOWS", False)
     mock_theme = mocker.MagicMock()
     mock_theme.name = _DARK_THEME
-    mock_style = mocker.MagicMock()
-    mock_style.theme = mock_theme
-    mocker.patch("gui.style.Style.get_instance", return_value=mock_style)
+    mocker.patch("gui.style.Style.get_instance", return_value=mocker.MagicMock(theme=mock_theme))
     apply_titlebar_theme(mocker.MagicMock())  # should not raise
 
 

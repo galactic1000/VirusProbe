@@ -112,8 +112,8 @@ def test_get_theme_mode(monkeypatch, value: str, expected: str) -> None:
     (save_workers_to_env, WORKERS_ENV_VAR, 4, "4"),
     (save_upload_timeout_minutes_to_env, UPLOAD_TIMEOUT_ENV_VAR, 20, "20"),
 ])
-def test_save_numeric_env(monkeypatch, fn, var: str, value: int, expected: str) -> None:
-    monkeypatch.setattr("common.env.dotenv.set_key", lambda *a, **kw: None)
+def test_save_numeric_env(mocker, monkeypatch, fn, var: str, value: int, expected: str) -> None:
+    mocker.patch("common.env.dotenv.set_key")
     monkeypatch.delenv(var, raising=False)
     fn(value)
     assert os.environ.get(var) == expected
@@ -125,8 +125,8 @@ def test_save_numeric_env(monkeypatch, fn, var: str, value: int, expected: str) 
     ("auto", "auto"),
     ("invalid", "never"),
 ])
-def test_save_upload_mode(monkeypatch, mode: str, expected: str) -> None:
-    monkeypatch.setattr("common.env.dotenv.set_key", lambda *a, **kw: None)
+def test_save_upload_mode(mocker, monkeypatch, mode: str, expected: str) -> None:
+    mocker.patch("common.env.dotenv.set_key")
     monkeypatch.delenv(UPLOAD_MODE_ENV_VAR, raising=False)
     save_upload_mode_to_env(mode)
     assert os.environ.get(UPLOAD_MODE_ENV_VAR) == expected
@@ -138,8 +138,8 @@ def test_save_upload_mode(monkeypatch, mode: str, expected: str) -> None:
     ("light", "light"),
     ("invalid", "auto"),
 ])
-def test_save_theme_mode(monkeypatch, mode: str, expected: str) -> None:
-    monkeypatch.setattr("common.env.dotenv.set_key", lambda *a, **kw: None)
+def test_save_theme_mode(mocker, monkeypatch, mode: str, expected: str) -> None:
+    mocker.patch("common.env.dotenv.set_key")
     monkeypatch.delenv(THEME_MODE_ENV_VAR, raising=False)
     save_theme_mode_to_env(mode)
     assert os.environ.get(THEME_MODE_ENV_VAR) == expected

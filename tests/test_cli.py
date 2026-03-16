@@ -116,85 +116,78 @@ def test_summary_counts_suspicious_detections(capsys) -> None:
     assert "(3 detections)" in output
 
 
-def test_error_recursive_without_directory(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_error_recursive_without_directory(mocker, monkeypatch) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-r", "-s", "a" * 64])
 
 
-def test_error_directory_and_files_mixed(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_error_directory_and_files_mixed(mocker, monkeypatch) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-d", ".", "-f", "a.bin"])
 
 
-def test_error_api_key_missing(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: None)
+def test_error_api_key_missing(mocker, monkeypatch) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value=None)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
 
 
-def test_error_upload_timeout_without_upload(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_error_upload_timeout_without_upload(mocker, monkeypatch) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     with pytest.raises(SystemExit) as exc_info:
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload-timeout", "10"])
     assert exc_info.value.code == 2
 
 
-def test_save_api_key_action_only(monkeypatch) -> None:
-    calls: dict[str, str | None] = {"saved": None}
-
-    def fake_save(value: str) -> None:
-        calls["saved"] = value
-
-    monkeypatch.setattr(cli_app, "save_api_key_to_env", fake_save)
-    monkeypatch.setattr(cli_app, "remove_api_key_from_env", lambda: False)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_save_api_key_action_only(mocker, monkeypatch) -> None:
+    mock_save = mocker.patch.object(cli_app, "save_api_key_to_env")
+    mocker.patch.object(cli_app, "remove_api_key_from_env", return_value=False)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
 
     valid_key = "b" * 64
     _run_main(monkeypatch, ["cli.py", "--api-key", valid_key, "--save-api-key"])
-    assert calls["saved"] == valid_key
+    mock_save.assert_called_once_with(valid_key)
 
 
-def test_save_api_key_rejects_invalid_key(monkeypatch) -> None:
-    calls = {"saved": None}
-    monkeypatch.setattr(cli_app, "save_api_key_to_env", lambda value: calls.__setitem__("saved", value))
-    monkeypatch.setattr(cli_app, "remove_api_key_from_env", lambda: False)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_save_api_key_rejects_invalid_key(mocker, monkeypatch) -> None:
+    mock_save = mocker.patch.object(cli_app, "save_api_key_to_env")
+    mocker.patch.object(cli_app, "remove_api_key_from_env", return_value=False)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
 
     with pytest.raises(SystemExit) as exc_info:
         _run_main(monkeypatch, ["cli.py", "--api-key", "abc", "--save-api-key"])
 
     assert exc_info.value.code == 2
-    assert calls["saved"] is None
+    mock_save.assert_not_called()
 
 
-def test_clear_cache_action_only(monkeypatch) -> None:
+def test_clear_cache_action_only(mocker, monkeypatch) -> None:
     FakeService.clear_cache_called = 0
     FakeService.init_cache_called = 0
-    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    mocker.patch.object(cli_app, "ScannerService", FakeService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
 
     _run_main(monkeypatch, ["cli.py", "--clear-cache"])
     assert FakeService.init_cache_called == 1
     assert FakeService.clear_cache_called == 1
 
 
-def test_invalid_recursive_skips_admin_actions(monkeypatch) -> None:
-    calls = {"saved": None}
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "save_api_key_to_env", lambda value: calls.__setitem__("saved", value))
+def test_invalid_recursive_skips_admin_actions(mocker, monkeypatch) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mock_save = mocker.patch.object(cli_app, "save_api_key_to_env")
 
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "--api-key", "abc", "--save-api-key", "-r", "-s", "a" * 64])
 
-    assert calls["saved"] is None
+    mock_save.assert_not_called()
 
 
-def test_invalid_upload_filter_skips_clear_cache(monkeypatch) -> None:
+def test_invalid_upload_filter_skips_clear_cache(mocker, monkeypatch) -> None:
     FakeService.clear_cache_called = 0
-    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+    mocker.patch.object(cli_app, "ScannerService", FakeService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
 
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "--clear-cache", "--upload-filter", "*.exe", "-s", "a" * 64])
@@ -240,7 +233,7 @@ def test_upload_filter_absolute_glob(tmp_path) -> None:
     assert matcher(str(file_path)) is True
 
 
-def test_exits_1_on_errors(monkeypatch) -> None:
+def test_exits_1_on_errors(mocker, monkeypatch) -> None:
     class ErrorService(FakeService):
         async def scan_targets(self, *args, **kwargs):
             result = ScanResult(
@@ -256,18 +249,18 @@ def test_exits_1_on_errors(monkeypatch) -> None:
                 on_result(result)
             return [result]
 
-    monkeypatch.setattr(cli_app, "ScannerService", ErrorService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    mocker.patch.object(cli_app, "ScannerService", ErrorService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
 
     with pytest.raises(SystemExit) as exc_info:
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
     assert exc_info.value.code == 1
 
 
-def test_exits_0_on_malicious(monkeypatch) -> None:
+def test_exits_0_on_malicious(mocker, monkeypatch) -> None:
     class MaliciousService(FakeService):
         async def scan_targets(self, *args, **kwargs):
             result = ScanResult(
@@ -282,16 +275,16 @@ def test_exits_0_on_malicious(monkeypatch) -> None:
                 on_result(result)
             return [result]
 
-    monkeypatch.setattr(cli_app, "ScannerService", MaliciousService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    mocker.patch.object(cli_app, "ScannerService", MaliciousService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
 
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
 
 
-def test_output_toggle_auto_generates_report_name(monkeypatch) -> None:
+def test_output_toggle_auto_generates_report_name(mocker, monkeypatch) -> None:
     class FakeDateTime:
         @staticmethod
         def now():
@@ -301,56 +294,56 @@ def test_output_toggle_auto_generates_report_name(monkeypatch) -> None:
                     return "20260225_120000"
             return _Now()
 
-    monkeypatch.setattr(cli_app, "datetime", FakeDateTime)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
+    mocker.patch.object(cli_app, "datetime", FakeDateTime)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "ScannerService", FakeService)
 
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "-o", "--format", "md"])
 
 
 @pytest.mark.parametrize("env_timeout", [30, 0])
-def test_env_upload_timeout_fallback(monkeypatch, env_timeout) -> None:
+def test_env_upload_timeout_fallback(mocker, monkeypatch, env_timeout) -> None:
     CaptureService, captured = _make_capture_service("upload_timeout_minutes")
-    monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "get_upload_timeout_minutes", lambda: env_timeout)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    mocker.patch.object(cli_app, "ScannerService", CaptureService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "get_upload_timeout_minutes", return_value=env_timeout)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
 
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
     assert captured["upload_timeout_minutes"] == env_timeout
 
 
-def test_accepts_zero_upload_timeout(monkeypatch) -> None:
+def test_accepts_zero_upload_timeout(mocker, monkeypatch) -> None:
     CaptureService, captured = _make_capture_service("upload_timeout_minutes")
-    monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    mocker.patch.object(cli_app, "ScannerService", CaptureService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
 
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload", "--upload-timeout", "0"])
     assert captured["upload_timeout_minutes"] == 0
 
 
-def test_env_rpm_and_workers_fallback(monkeypatch) -> None:
+def test_env_rpm_and_workers_fallback(mocker, monkeypatch) -> None:
     CaptureService, captured = _make_capture_service("requests_per_minute", "max_workers")
-    monkeypatch.setattr(cli_app, "ScannerService", CaptureService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "get_requests_per_minute", lambda: 0)
-    monkeypatch.setattr(cli_app, "get_workers", lambda: 7)
-    monkeypatch.setattr(cli_app, "get_upload_timeout_minutes", lambda: 20)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    mocker.patch.object(cli_app, "ScannerService", CaptureService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "get_requests_per_minute", return_value=0)
+    mocker.patch.object(cli_app, "get_workers", return_value=7)
+    mocker.patch.object(cli_app, "get_upload_timeout_minutes", return_value=20)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
 
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
     assert captured["requests_per_minute"] == 0
     assert captured["max_workers"] == 7
 
 
-def test_writes_report_from_scan(monkeypatch, tmp_path) -> None:
+def test_writes_report_from_scan(monkeypatch, tmp_path, mocker) -> None:
     output_path = tmp_path / "report.json"
 
     class ReportService(FakeService):
@@ -372,11 +365,11 @@ def test_writes_report_from_scan(monkeypatch, tmp_path) -> None:
                 on_result(result)
             return [result]
 
-    monkeypatch.setattr(cli_app, "ScannerService", ReportService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    mocker.patch.object(cli_app, "ScannerService", ReportService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
 
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "-o", str(output_path), "--format", "json"])
 
@@ -391,29 +384,28 @@ def test_writes_report_from_scan(monkeypatch, tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_error_save_and_clear_api_key_together(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_error_save_and_clear_api_key_together(monkeypatch, mocker) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "--api-key", "abc", "--save-api-key", "--clear-api-key"])
 
 
-def test_error_save_api_key_without_key(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_error_save_api_key_without_key(monkeypatch, mocker) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "--save-api-key"])
 
 
-def test_clear_api_key_action(monkeypatch) -> None:
-    calls: dict[str, int] = {"remove": 0}
-    monkeypatch.setattr(cli_app, "remove_api_key_from_env", lambda: (calls.__setitem__("remove", calls["remove"] + 1) or True))
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_clear_api_key_action(monkeypatch, mocker) -> None:
+    mock_remove = mocker.patch.object(cli_app, "remove_api_key_from_env", return_value=True)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     _run_main(monkeypatch, ["cli.py", "--clear-api-key"])
-    assert calls["remove"] == 1
+    mock_remove.assert_called_once()
 
 
-def test_clear_api_key_not_found(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli_app, "remove_api_key_from_env", lambda: False)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_clear_api_key_not_found(monkeypatch, mocker, capsys) -> None:
+    mocker.patch.object(cli_app, "remove_api_key_from_env", return_value=False)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     _run_main(monkeypatch, ["cli.py", "--clear-api-key"])
     assert "No saved API key found" in capsys.readouterr().out
 
@@ -423,32 +415,32 @@ def test_clear_api_key_not_found(monkeypatch, capsys) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_error_negative_rpm(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_error_negative_rpm(monkeypatch, mocker) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--rpm", "-1"])
 
 
-def test_error_negative_upload_timeout(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_error_negative_upload_timeout(monkeypatch, mocker) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload", "--upload-timeout", "-1"])
 
 
-def test_error_workers_less_than_one(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_error_workers_less_than_one(monkeypatch, mocker) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--workers", "0"])
 
 
-def test_error_no_scan_input(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
+def test_error_no_scan_input(monkeypatch, mocker) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py"])
 
 
-def test_error_invalid_api_key_format(monkeypatch) -> None:
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "short-key")
+def test_error_invalid_api_key_format(monkeypatch, mocker) -> None:
+    mocker.patch.object(cli_app, "get_api_key", return_value="short-key")
     with pytest.raises(SystemExit):
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
 
@@ -458,82 +450,82 @@ def test_error_invalid_api_key_format(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_workers_greater_than_rpm_prints_warning(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+def test_workers_greater_than_rpm_prints_warning(monkeypatch, mocker, capsys) -> None:
+    mocker.patch.object(cli_app, "ScannerService", FakeService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--rpm", "1", "--workers", "8"])
     assert "workers" in capsys.readouterr().out.lower()
 
 
-def test_upload_mode_message_no_filter(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+def test_upload_mode_message_no_filter(monkeypatch, mocker, capsys) -> None:
+    mocker.patch.object(cli_app, "ScannerService", FakeService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload"])
     assert "undetected files will be submitted" in capsys.readouterr().out
 
 
-def test_upload_mode_message_with_filter(monkeypatch, capsys) -> None:
-    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+def test_upload_mode_message_with_filter(monkeypatch, mocker, capsys) -> None:
+    mocker.patch.object(cli_app, "ScannerService", FakeService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64, "--upload", "--upload-filter", "*.exe"])
     assert "*.exe" in capsys.readouterr().out
 
 
-def test_file_input_warnings_printed(monkeypatch, tmp_path, capsys) -> None:
+def test_file_input_warnings_printed(monkeypatch, tmp_path, mocker, capsys) -> None:
     good = tmp_path / "good.bin"
     good.write_bytes(b"x")
-    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    mocker.patch.object(cli_app, "ScannerService", FakeService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
     _run_main(monkeypatch, ["cli.py", "-f", str(good), "/no/such/file.bin"])
     assert "Skipping missing file" in capsys.readouterr().out
 
 
-def test_directory_scan_target(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(cli_app, "ScannerService", FakeService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+def test_directory_scan_target(monkeypatch, tmp_path, mocker) -> None:
+    mocker.patch.object(cli_app, "ScannerService", FakeService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
     _run_main(monkeypatch, ["cli.py", "-d", str(tmp_path)])
 
 
-def test_exits_130_on_keyboard_interrupt(monkeypatch) -> None:
+def test_exits_130_on_keyboard_interrupt(monkeypatch, mocker) -> None:
     class CancelService(FakeService):
         async def scan_targets(self, *args, **kwargs):
             raise KeyboardInterrupt
 
-    monkeypatch.setattr(cli_app, "ScannerService", CancelService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    mocker.patch.object(cli_app, "ScannerService", CancelService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
     with pytest.raises(SystemExit) as exc_info:
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
     assert exc_info.value.code == 130
 
 
-def test_raises_on_unexpected_exception_no_results(monkeypatch) -> None:
+def test_raises_on_unexpected_exception_no_results(monkeypatch, mocker) -> None:
     class BoomService(FakeService):
         async def scan_targets(self, *args, **kwargs):
             raise RuntimeError("network down")
 
-    monkeypatch.setattr(cli_app, "ScannerService", BoomService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
+    mocker.patch.object(cli_app, "ScannerService", BoomService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
     with pytest.raises(RuntimeError, match="network down"):
         _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
 
 
-def test_prints_run_error_when_results_exist(monkeypatch, capsys) -> None:
+def test_prints_run_error_when_results_exist(monkeypatch, mocker, capsys) -> None:
     class PartialService(FakeService):
         async def scan_targets(self, *args, **kwargs):
             result = ScanResult(
@@ -548,10 +540,10 @@ def test_prints_run_error_when_results_exist(monkeypatch, capsys) -> None:
                 on_result(result)
             raise RuntimeError("partial failure")
 
-    monkeypatch.setattr(cli_app, "ScannerService", PartialService)
-    monkeypatch.setattr(cli_app, "get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr(cli_app, "print_banner", lambda: None)
-    monkeypatch.setattr(cli_app, "print_result", lambda *a, **kw: None)
-    monkeypatch.setattr(cli_app, "print_scan_summary", lambda *a: None)
+    mocker.patch.object(cli_app, "ScannerService", PartialService)
+    mocker.patch.object(cli_app, "get_api_key", return_value="a" * 64)
+    mocker.patch.object(cli_app, "print_banner")
+    mocker.patch.object(cli_app, "print_result")
+    mocker.patch.object(cli_app, "print_scan_summary")
     _run_main(monkeypatch, ["cli.py", "-s", "a" * 64])
     assert "partial failure" in capsys.readouterr().out

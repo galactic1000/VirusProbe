@@ -125,7 +125,7 @@ def test_not_found_roundtrip(cache_factory) -> None:
     assert cache.get_entry(file_hash) is None
 
 
-def test_save_skips_memory_on_commit_failure(monkeypatch, tmp_path) -> None:
+def test_save_skips_memory_on_commit_failure(mocker, tmp_path) -> None:
     class _FakeCursor:
         rowcount = 1
 
@@ -153,7 +153,7 @@ def test_save_skips_memory_on_commit_failure(monkeypatch, tmp_path) -> None:
     fake_conn = _FakeConnection()
     cache._row_count = 4  # noqa: SLF001
     cache._writes_since_trim = 7  # noqa: SLF001
-    monkeypatch.setattr(cache, "_get_conn", lambda: fake_conn)
+    mocker.patch.object(cache, "_get_conn", return_value=fake_conn)
 
     with pytest.raises(sqlite3.OperationalError, match="commit failed"):
         cache.save("e" * 64, (1, 2, 3, 4))
@@ -164,7 +164,7 @@ def test_save_skips_memory_on_commit_failure(monkeypatch, tmp_path) -> None:
     assert "e" * 64 not in cache._memory  # noqa: SLF001
 
 
-def test_get_restores_row_count_on_commit_failure(monkeypatch, tmp_path) -> None:
+def test_get_restores_row_count_on_commit_failure(mocker, tmp_path) -> None:
     class _FakeCursor:
         def __init__(self) -> None:
             self.rowcount = 0
@@ -196,7 +196,7 @@ def test_get_restores_row_count_on_commit_failure(monkeypatch, tmp_path) -> None
     cache = ScanCache(cache_db=tmp_path / "vt_cache.db")
     fake_conn = _FakeConnection()
     cache._row_count = 9  # noqa: SLF001
-    monkeypatch.setattr(cache, "_get_conn", lambda: fake_conn)
+    mocker.patch.object(cache, "_get_conn", return_value=fake_conn)
 
     with pytest.raises(sqlite3.OperationalError, match="commit failed"):
         cache.get("f" * 64)

@@ -175,12 +175,12 @@ class _BusyGuardView:
         return []
 
 
-def test_advanced_invalidates_scanner(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("gui.model.save_requests_per_minute_to_env", lambda _value: None)
-    monkeypatch.setattr("gui.model.save_workers_to_env", lambda _value: None)
-    monkeypatch.setattr("gui.model.save_upload_timeout_minutes_to_env", lambda _value: None)
-    monkeypatch.setattr("gui.model.save_upload_mode_to_env", lambda _value: None)
-    monkeypatch.setattr("gui.model.save_theme_mode_to_env", lambda _value: None)
+def test_advanced_invalidates_scanner(tmp_path, mocker) -> None:
+    mocker.patch("gui.model.save_requests_per_minute_to_env")
+    mocker.patch("gui.model.save_workers_to_env")
+    mocker.patch("gui.model.save_upload_timeout_minutes_to_env")
+    mocker.patch("gui.model.save_upload_mode_to_env")
+    mocker.patch("gui.model.save_theme_mode_to_env")
 
     model = AppModel(cache_db=tmp_path / "vt_cache.db")
     fake_scanner = _FakeScanner()
@@ -231,13 +231,13 @@ async def test_clear_cache_uses_temp_service(tmp_path, mocker) -> None:
     assert calls == ["init_service", "init_cache_async", "clear_cache_async", "close"]
 
 
-def test_hash_result_key_is_file_hash(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr("gui.model.get_api_key", lambda: None)
-    monkeypatch.setattr("gui.model.get_upload_mode", lambda: "never")
-    monkeypatch.setattr("gui.model.get_theme_mode", lambda: "auto")
-    monkeypatch.setattr("gui.model.get_requests_per_minute", lambda: None)
-    monkeypatch.setattr("gui.model.get_workers", lambda: None)
-    monkeypatch.setattr("gui.model.get_upload_timeout_minutes", lambda: None)
+def test_hash_result_key_is_file_hash(tmp_path, mocker) -> None:
+    mocker.patch("gui.model.get_api_key", return_value=None)
+    mocker.patch("gui.model.get_upload_mode", return_value="never")
+    mocker.patch("gui.model.get_theme_mode", return_value="auto")
+    mocker.patch("gui.model.get_requests_per_minute", return_value=None)
+    mocker.patch("gui.model.get_workers", return_value=None)
+    mocker.patch("gui.model.get_upload_timeout_minutes", return_value=None)
     model = AppModel(cache_db=tmp_path / "vt_cache.db")
 
     result = ScanResult(

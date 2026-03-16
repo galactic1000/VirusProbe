@@ -13,13 +13,13 @@ from gui.presenter import AppPresenter, masked_api_key_text, upload_indicator_te
 
 
 @pytest.fixture
-def model(monkeypatch, tmp_path):
-    monkeypatch.setattr("gui.model.get_api_key", lambda: "a" * 64)
-    monkeypatch.setattr("gui.model.get_upload_mode", lambda: "never")
-    monkeypatch.setattr("gui.model.get_theme_mode", lambda: "auto")
-    monkeypatch.setattr("gui.model.get_requests_per_minute", lambda: None)
-    monkeypatch.setattr("gui.model.get_workers", lambda: None)
-    monkeypatch.setattr("gui.model.get_upload_timeout_minutes", lambda: None)
+def model(mocker, tmp_path):
+    mocker.patch("gui.model.get_api_key", return_value="a" * 64)
+    mocker.patch("gui.model.get_upload_mode", return_value="never")
+    mocker.patch("gui.model.get_theme_mode", return_value="auto")
+    mocker.patch("gui.model.get_requests_per_minute", return_value=None)
+    mocker.patch("gui.model.get_workers", return_value=None)
+    mocker.patch("gui.model.get_upload_timeout_minutes", return_value=None)
     return AppModel(tmp_path / "test.db")
 
 
@@ -181,13 +181,13 @@ def test_remove_results(model) -> None:
     assert model.results_for_keys([("hash", "d" * 64)]) == []
 
 
-def test_invalid_loaded_api_key_treated_as_unset(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr("gui.model.get_api_key", lambda: "invalid-key")
-    monkeypatch.setattr("gui.model.get_upload_mode", lambda: "never")
-    monkeypatch.setattr("gui.model.get_theme_mode", lambda: "auto")
-    monkeypatch.setattr("gui.model.get_requests_per_minute", lambda: None)
-    monkeypatch.setattr("gui.model.get_workers", lambda: None)
-    monkeypatch.setattr("gui.model.get_upload_timeout_minutes", lambda: None)
+def test_invalid_loaded_api_key_treated_as_unset(mocker, tmp_path) -> None:
+    mocker.patch("gui.model.get_api_key", return_value="invalid-key")
+    mocker.patch("gui.model.get_upload_mode", return_value="never")
+    mocker.patch("gui.model.get_theme_mode", return_value="auto")
+    mocker.patch("gui.model.get_requests_per_minute", return_value=None)
+    mocker.patch("gui.model.get_workers", return_value=None)
+    mocker.patch("gui.model.get_upload_timeout_minutes", return_value=None)
 
     model = AppModel(tmp_path / "test.db")
 
@@ -215,48 +215,32 @@ def test_close_resets_scanner(model, mocker) -> None:
     fake.close.assert_called_once()
 
 
-def test_set_api_key_saves_and_resets(model, monkeypatch, mocker) -> None:
-    saved = {}
-    monkeypatch.setattr("gui.model.save_api_key_to_env", lambda v: saved.__setitem__("key", v))
+def test_set_api_key_saves_and_resets(model, mocker) -> None:
+    mock_save = mocker.patch("gui.model.save_api_key_to_env")
     reset_spy = mocker.spy(model, "reset_scanner")
     model.set_api_key("b" * 64)
-    assert saved["key"] == "b" * 64
+    mock_save.assert_called_once_with("b" * 64)
     reset_spy.assert_called_once()
 
 
-def test_set_api_key_empty_removes(model, monkeypatch, mocker) -> None:
-    removed = {}
-    monkeypatch.setattr("gui.model.remove_api_key_from_env", lambda: removed.__setitem__("called", True) or False)
+def test_set_api_key_empty_removes(model, mocker) -> None:
+    mock_remove = mocker.patch("gui.model.remove_api_key_from_env", return_value=False)
     model.set_api_key("")
-    assert removed.get("called") is True
+    mock_remove.assert_called_once()
     assert model.api_key is None
 
 
-async def test_acquire_scanner_creates_and_caches(model, monkeypatch, tmp_path) -> None:
-    from common.service import ScannerService
-    monkeypatch.setattr("gui.model.ScannerService", lambda **_kw: _make_fake_scanner())
-
-    class _FakeScanner:
-        def __init__(self): self.closed = False
-        async def init_cache_async(self): pass
-        def close(self): self.closed = True
-
-    def _make_fake_scanner():
-        return _FakeScanner()
-
-    monkeypatch.setattr("gui.model.ScannerService", lambda **_kw: _make_fake_scanner())
+async def test_acquire_scanner_creates_and_caches(model, mocker) -> None:
+    mock_svc = mocker.patch("gui.model.ScannerService", return_value=mocker.AsyncMock())
     config = ScannerConfig()
     s1 = await model.acquire_scanner_async(config)
     s2 = await model.acquire_scanner_async(config)
     assert s1 is s2
+    mock_svc.assert_called_once()
 
 
-async def test_acquire_scanner_replaces_on_config_change(model, monkeypatch) -> None:
-    class _FakeScanner:
-        async def init_cache_async(self): pass
-        def close(self): pass
-
-    monkeypatch.setattr("gui.model.ScannerService", lambda **_kw: _FakeScanner())
+async def test_acquire_scanner_replaces_on_config_change(model, mocker) -> None:
+    mocker.patch("gui.model.ScannerService", side_effect=lambda **_: mocker.AsyncMock())
     s1 = await model.acquire_scanner_async(ScannerConfig(requests_per_minute=4))
     s2 = await model.acquire_scanner_async(ScannerConfig(requests_per_minute=8))
     assert s1 is not s2
@@ -264,31 +248,26 @@ async def test_acquire_scanner_replaces_on_config_change(model, monkeypatch) -> 
 
 async def test_clear_cache_uses_existing_scanner(model, mocker) -> None:
     fake = mocker.AsyncMock()
-    fake.clear_cache_async = mocker.AsyncMock(return_value=7)
+    fake.clear_cache_async.return_value = 7
     model._scanner = fake
     result = await model.clear_cache_async()
     assert result == 7
 
 
-async def test_acquire_scanner_init_failure_raises(model, monkeypatch) -> None:
-    class _FailScanner:
-        async def init_cache_async(self): raise RuntimeError("db error")
-        def close(self): pass
-
-    monkeypatch.setattr("gui.model.ScannerService", lambda **_: _FailScanner())
+async def test_acquire_scanner_init_failure_raises(model, mocker) -> None:
+    failing = mocker.AsyncMock()
+    failing.init_cache_async.side_effect = RuntimeError("db error")
+    failing.close = mocker.MagicMock()
+    mocker.patch("gui.model.ScannerService", return_value=failing)
     with pytest.raises(RuntimeError, match="db error"):
         await model.acquire_scanner_async(ScannerConfig())
     assert model._scanner is None
 
 
-async def test_acquire_scanner_concurrent_returns_same(model, monkeypatch) -> None:
+async def test_acquire_scanner_concurrent_returns_same(model, mocker) -> None:
     import asyncio
 
-    class _FakeScanner:
-        async def init_cache_async(self): await asyncio.sleep(0)
-        def close(self): pass
-
-    monkeypatch.setattr("gui.model.ScannerService", lambda **_: _FakeScanner())
+    mocker.patch("gui.model.ScannerService", return_value=mocker.AsyncMock())
     config = ScannerConfig()
     s1, s2 = await asyncio.gather(
         model.acquire_scanner_async(config),
@@ -297,10 +276,7 @@ async def test_acquire_scanner_concurrent_returns_same(model, monkeypatch) -> No
     assert s1 is s2
 
 
-async def test_acquire_scanner_reused_after_context_exit(model, monkeypatch, tmp_path) -> None:
-    from common.service import ScannerService
-
-    monkeypatch.setattr("gui.model.ScannerService", ScannerService)
+async def test_acquire_scanner_reused_after_context_exit(model, tmp_path) -> None:
     config = ScannerConfig(max_workers=1)
     sample = tmp_path / "sample.bin"
     sample.write_bytes(b"sample")

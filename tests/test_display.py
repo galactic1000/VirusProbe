@@ -46,14 +46,13 @@ def test_format_colored_wraps_text() -> None:
 
 
 @pytest.mark.parametrize("threat,expected_color", [
-    ("Cancelled", Fore.MAGENTA),
-    ("Malicious", Fore.RED),
-    ("Suspicious", Fore.YELLOW),
-    ("Undetected", Fore.CYAN),
-    ("Clean", Fore.GREEN),
-    ("Unknown", Fore.GREEN),
+    (ThreatLevel.CANCELLED, Fore.MAGENTA),
+    (ThreatLevel.MALICIOUS, Fore.RED),
+    (ThreatLevel.SUSPICIOUS, Fore.YELLOW),
+    (ThreatLevel.UNDETECTED, Fore.CYAN),
+    (ThreatLevel.CLEAN, Fore.GREEN),
 ])
-def test_verdict_color(threat: str, expected_color: str) -> None:
+def test_verdict_color(threat: ThreatLevel, expected_color: str) -> None:
     assert _verdict_color(threat) == expected_color
 
 
@@ -114,14 +113,14 @@ def test_print_banner(capsys) -> None:
 
 
 def _make_result(**kwargs) -> ScanResult:
-    defaults = dict(
+    defaults: dict = dict(
         item="item",
         kind=ScanTargetKind.HASH,
         file_hash="a" * 64,
         status=ResultStatus.OK,
     )
     defaults.update(kwargs)
-    return ScanResult(**defaults)
+    return ScanResult(**defaults)  # type: ignore[arg-type]
 
 
 def test_item_label_file() -> None:
