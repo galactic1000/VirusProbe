@@ -6,8 +6,14 @@ import shutil
 
 from colorama import Fore, Style
 
-from common import ScanResult, build_summary
-from common.models import ResultStatus, ScanTargetKind, ThreatLevel
+from common import (
+    ResultStatus,
+    ScanResult,
+    ScanTargetKind,
+    ThreatLevel,
+    build_summary,
+    format_hash,
+)
 
 TOOL_NAME = "VirusProbe"
 TOOL_VERSION = "1.0.0"
@@ -18,7 +24,6 @@ SUBSECTION_BORDER_CHAR = "-"
 
 
 def _default_separator_width() -> int:
-    # Keep output readable on smaller terminals and avoid very wide lines on large monitors.
     width = shutil.get_terminal_size(fallback=(95, 24)).columns
     return max(80, min(110, width))
 
@@ -98,12 +103,12 @@ def _item_label(result: ScanResult) -> str:
     if result.kind is ScanTargetKind.FILE:
         return f"File path: {item}"
     elif result.kind is ScanTargetKind.HASH:
-        return f"SHA-256 hash: {result.file_hash}" if result.file_hash else item
+        return format_hash(result.file_hash) if result.file_hash else item
     return item
 
 
 def print_result(result: ScanResult, index: int | None = None, total: int | None = None) -> None:
-    scan_type = "SHA-256 HASH SCAN" if result.kind is ScanTargetKind.HASH else "FILE SCAN"
+    scan_type = "HASH SCAN" if result.kind is ScanTargetKind.HASH else "FILE SCAN"
     if index is not None and total is not None:
         print_header(f"ITEM {index}/{total} - {scan_type}", Fore.BLUE)
     elif index is not None:
@@ -113,9 +118,9 @@ def print_result(result: ScanResult, index: int | None = None, total: int | None
     if result.kind is ScanTargetKind.FILE:
         print(f"File path: {result.item}")
         if result.file_hash:
-            print(f"SHA-256 hash: {result.file_hash}")
+            print(format_hash(result.file_hash))
     else:
-        print(f"SHA-256 hash: {result.file_hash}")
+        print(format_hash(result.file_hash))
 
     match result.status:
         case ResultStatus.UNDETECTED:

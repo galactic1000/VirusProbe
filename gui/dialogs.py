@@ -14,8 +14,15 @@ from ttkbootstrap.dialogs import Messagebox
 from ttkbootstrap.dialogs.base import Dialog
 from ttkbootstrap.dialogs.query import QueryDialog
 
-from common import UPLOAD_AUTO, UPLOAD_MANUAL, UPLOAD_NEVER, THEME_AUTO, THEME_DARK, THEME_LIGHT
-from common import service_results
+from common import (
+    THEME_AUTO,
+    THEME_DARK,
+    THEME_LIGHT,
+    UPLOAD_AUTO,
+    UPLOAD_MANUAL,
+    UPLOAD_NEVER,
+    is_valid_hash,
+)
 from .style import apply_titlebar_theme
 from .workflows import ReportRequest
 
@@ -78,7 +85,7 @@ class AddHashesDialog(AppDialog):
     _AUTO_CLOSE_DELAY = 500
 
     def __init__(self, parent: tk.Tk, add_item: Callable[[str, str], bool]) -> None:
-        super().__init__(parent, "Add SHA-256 Hashes")
+        super().__init__(parent, "Add Hashes")
         self._add_item = add_item
         self._status_var = tk.StringVar(value="")
         self._text: tk.Text
@@ -87,7 +94,7 @@ class AddHashesDialog(AppDialog):
         frame = ttk.Frame(master, padding=12)
         frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(frame, text="Enter one or more SHA-256 hashes.", font=("-size 11 -weight bold")).pack(anchor=tk.W)
+        ttk.Label(frame, text="Enter one or more hashes (MD5, SHA-1, or SHA-256).", font=("-size 11 -weight bold")).pack(anchor=tk.W)
         ttk.Label(
             frame,
             text="Enter one hash per line. A single hash is supported too.",
@@ -130,7 +137,7 @@ class AddHashesDialog(AppDialog):
                 duplicates += 1
                 continue
             seen.add(value)
-            if not service_results.is_sha256(value):
+            if not is_valid_hash(value):
                 invalid.append(token)
                 continue
             if self._add_item("hash", value):

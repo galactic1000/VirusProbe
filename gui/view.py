@@ -115,7 +115,7 @@ class MainWindow:
             activeborderwidth=0,
         )
         add_menu.add_command(label="Add File(s)...", command=on_add_files)
-        add_menu.add_command(label="Add SHA-256 hash(es)...", command=on_add_hashes)
+        add_menu.add_command(label="Add hash(es)...", command=on_add_hashes)
         self.add_menu_btn["menu"] = add_menu
         self.add_menu_btn.pack(side=tk.LEFT)
         self.remove_btn = ttk.Button(left, text="Remove Selected", command=on_remove_selected, bootstyle="secondary")

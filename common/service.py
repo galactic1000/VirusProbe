@@ -239,8 +239,8 @@ class ScannerService:
         if cancel_event is not None and cancel_event.is_set():
             return sr.cancelled_result(str(file_hash), ScanTargetKind.HASH), None
         normalized_input = file_hash.strip()
-        if not sr.is_sha256(normalized_input):
-            return sr.hash_error(normalized_input, "Invalid SHA-256 hash format", normalized_input.lower()), None
+        if not sr.is_valid_hash(normalized_input):
+            return sr.hash_error(normalized_input, "Invalid hash format (expected MD5, SHA-1, or SHA-256)", normalized_input.lower()), None
         normalized_hash = normalized_input.lower()
         cached = await self._cached_result_async(
             item=normalized_hash,
@@ -549,7 +549,7 @@ class ScannerService:
 
             if target.kind is ScanTargetKind.HASH:
                 normalized = target.value.strip().lower()
-                if sr.is_sha256(normalized):
+                if sr.is_valid_hash(normalized):
                     if normalized in seen_hashes:
                         continue
                     seen_hashes.add(normalized)

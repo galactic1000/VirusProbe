@@ -27,6 +27,7 @@ from .env import (
 from .defaults import DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES
 from .models import ResultStatus, ScannerConfig, ScanResult, ScanTarget, ScanTargetKind, ThreatLevel, UploadTarget
 from .reporting import build_summary, write_report
+from .service_results import format_hash, is_valid_hash
 from .service import ScannerService
 
 __all__ = [
@@ -42,6 +43,8 @@ __all__ = [
     "UploadTarget",
     "build_summary",
     "write_report",
+    "format_hash",
+    "is_valid_hash",
     "get_api_key",
     "is_valid_api_key",
     "save_api_key_to_env",

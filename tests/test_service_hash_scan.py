@@ -12,6 +12,16 @@ from common.models import ResultStatus, ScanResult, ScanTarget, ScanTargetKind, 
 from common.service import ScannerService
 
 
+@pytest.mark.parametrize("file_hash,expected_label", [
+    ("a" * 32, "MD5"),
+    ("a" * 40, "SHA-1"),
+    ("a" * 64, "SHA-256"),
+])
+def test_format_hash_label(file_hash, expected_label) -> None:
+    from common import service_results
+    assert service_results.format_hash(file_hash) == f"{expected_label} hash: {file_hash}"
+
+
 async def test_invalid_hash_returns_error(service_factory) -> None:
     service = service_factory()
     result, unresolved = await service._prepare_hash_scan_async(ScanTarget.from_hash("not-a-hash"))
@@ -19,7 +29,7 @@ async def test_invalid_hash_returns_error(service_factory) -> None:
     assert result is not None
     assert result.status == ResultStatus.ERROR
     assert result.type == "hash"
-    assert "Invalid SHA-256" in result.message
+    assert "Invalid hash format" in result.message
 
 
 async def test_hash_scan_uses_vt_response(service_factory, mocker, limiter) -> None:

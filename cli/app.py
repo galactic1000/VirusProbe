@@ -51,20 +51,20 @@ _EXIT_CANCELLED = 130
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="VirusProbe - scan files or SHA-256 hashes using VirusTotal",
+        description="VirusProbe - scan files or hashes (MD5, SHA-1, SHA-256) using VirusTotal",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=(
             "Examples:\n"
             "  python cli.py -f sample.exe\n"
             "  python cli.py -d ./samples -r --upload --upload-filter *.exe *.dll\n"
-            "  python cli.py -s <sha256> --requests-per-minute 10 --workers 4\n"
+            "  python cli.py -s <md5|sha1|sha256> --requests-per-minute 10 --workers 4\n"
             "  python cli.py -f sample.exe -o --format md"
         ),
         add_help=True,
     )
     targets = parser.add_argument_group("Scan Targets")
     targets.add_argument("-f", "--file", "--files", dest="files", nargs="+", metavar="FILE", help="One or more file paths to scan")
-    targets.add_argument("-s", "--hash", "--hashes", dest="hashes", nargs="+", metavar="HASH", help="One or more SHA-256 hashes to scan")
+    targets.add_argument("-s", "--hash", "--hashes", dest="hashes", nargs="+", metavar="HASH", help="One or more MD5, SHA-1, or SHA-256 hashes to scan")
     targets.add_argument("-d", "--directory", "--dir", metavar="DIR", help="Scan all files in a directory")
     targets.add_argument("-r", "--recursive", action="store_true", help="When using --directory, scan subdirectories recursively")
 

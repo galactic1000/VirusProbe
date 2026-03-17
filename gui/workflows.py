@@ -7,7 +7,15 @@ from dataclasses import dataclass
 from threading import Event
 from collections.abc import Callable
 
-from common import ResultStatus, ScanResult, ScanTarget, ScanTargetKind, ScannerService, UploadTarget, write_report
+from common import (
+    ResultStatus,
+    ScanResult,
+    ScannerService,
+    ScanTarget,
+    ScanTargetKind,
+    UploadTarget,
+    write_report,
+)
 
 
 @dataclass

@@ -8,8 +8,18 @@ from .models import ResultStatus, ScanResult, ScanTargetKind, ThreatLevel
 from .env import HEX_CHARS
 
 
-def format_hash(value: object) -> str:
-    return f"SHA-256 hash: {value}"
+def _hash_type_label(value: str) -> str:
+    match len(value):
+        case 32:
+            return "MD5"
+        case 40:
+            return "SHA-1"
+        case _:
+            return "SHA-256"
+
+
+def format_hash(value: str) -> str:
+    return f"{_hash_type_label(value)} hash: {value}"
 
 
 def base_result(
@@ -39,7 +49,7 @@ def cancelled_result(item: str, kind: ScanTargetKind, file_hash: str = "") -> Sc
 
 
 
-def hash_error(value: object, message: str, file_hash: str = "") -> ScanResult:
+def hash_error(value: str, message: str, file_hash: str = "") -> ScanResult:
     return error_result(format_hash(value), ScanTargetKind.HASH, message, file_hash)
 
 
@@ -67,6 +77,10 @@ def not_found_file_result(file_path: str, file_hash: str) -> ScanResult:
 
 def is_sha256(value: str) -> bool:
     return len(value) == 64 and all(c in HEX_CHARS for c in value)
+
+
+def is_valid_hash(value: str) -> bool:
+    return len(value) in (32, 40, 64) and all(c in HEX_CHARS for c in value)
 
 
 def classify_threat(malicious: int, suspicious: int = 0) -> ThreatLevel:

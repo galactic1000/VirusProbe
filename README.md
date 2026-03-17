@@ -1,6 +1,6 @@
 # VirusProbe
 
-An efficient malware scanning tool powered by VirusTotal. Scan files, directories, or SHA-256 file hashes via a command-line tool or desktop app. Features intelligent caching, concurrent scanning, and automatic file upload for undetected samples.
+An efficient malware scanning tool powered by VirusTotal. Scan files, directories, or file hashes (MD5, SHA-1, or SHA-256) via a command-line tool or desktop app. Features intelligent caching, concurrent scanning, and automatic file upload for undetected samples.
 
 ## Requirements
 
@@ -46,7 +46,7 @@ VirusProbe-CLI -s 275A021BBFB6489E54D471899F7DB9D1663FC695EC2FE2A2C4538AABF651FD
 
 1. Run `VirusProbe-GUI`
 2. Set API key in the GUI
-3. Add files and/or SHA-256 hashes
+3. Add files and/or hashes (MD5, SHA-1, or SHA-256)
 4. Click `Scan`
 5. Generate report after scan completes
 
@@ -68,7 +68,7 @@ python gui.py
 ## Features
 
 **Scanning**
-- Scan individual files, whole directories (with optional recursion), or bare SHA-256 file hashes
+- Scan individual files, whole directories (with optional recursion), or bare file hashes (MD5, SHA-1, SHA-256)
 - Mix directory scans with extra hash inputs in a single run
 - Concurrent scanning with a configurable worker count and per-minute rate limit
 
@@ -111,7 +111,7 @@ python cli.py [options]
 | Flag | Description |
 |---|---|
 | `-f, --file, --files` | One or more file paths to scan |
-| `-s, --hash, --hashes` | One or more SHA-256 hashes to scan |
+| `-s, --hash, --hashes` | One or more MD5, SHA-1, or SHA-256 hashes to scan |
 | `-d, --directory, --dir` | Scan all files in a directory |
 | `-r, --recursive` | Recurse subdirectories (directory mode only) |
 | `-u, --upload` | Upload files not found in VirusTotal and wait for analysis results (uses extra API quota) |
@@ -171,7 +171,7 @@ VirusProbe-CLI -d /path/to/folder --upload --upload-filter "*.exe" "*.dll"
 ## GUI Usage
 
 - **Set API Key**: Store/remove key in `.env`
-- **Add Item**: Add files or SHA-256 hash(es) (one per line)
+- **Add Item**: Add files or hash(es) — MD5, SHA-1, or SHA-256 (one per line)
 - **Drag-and-drop**: Accepts files directly
 - **Advanced Settings**: Configure theme (auto/light/dark), workers (1-50), rate limit, upload mode (never/manual/auto), and upload timeout. Setting rate limit or upload timeout to `0` disables that limit.
   - Manual mode: `Upload` button appears in toolbar — click to upload all undetected files, or select specific rows to upload only those

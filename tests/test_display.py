@@ -128,9 +128,14 @@ def test_item_label_file() -> None:
     assert _item_label(r) == "File path: C:/file.bin"
 
 
-def test_item_label_hash() -> None:
-    r = _make_result(kind=ScanTargetKind.HASH, file_hash="b" * 64)
-    assert _item_label(r) == f"SHA-256 hash: {'b' * 64}"
+@pytest.mark.parametrize("file_hash,expected_label", [
+    ("b" * 32, "MD5"),
+    ("b" * 40, "SHA-1"),
+    ("b" * 64, "SHA-256"),
+])
+def test_item_label_hash(file_hash, expected_label) -> None:
+    r = _make_result(kind=ScanTargetKind.HASH, file_hash=file_hash)
+    assert _item_label(r) == f"{expected_label} hash: {file_hash}"
 
 
 def test_item_label_fallback() -> None:
@@ -147,7 +152,7 @@ def test_print_result_hash_no_index(capsys) -> None:
     r = _make_result(kind=ScanTargetKind.HASH, file_hash="a" * 64, malicious=5, suspicious=0, harmless=10, undetected=0, threat_level=ThreatLevel.MALICIOUS, message="Queried")
     print_result(r)
     out = capsys.readouterr().out
-    assert "SHA-256 HASH SCAN" in out
+    assert "HASH SCAN" in out
     assert "a" * 64 in out
 
 

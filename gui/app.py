@@ -16,7 +16,18 @@ from tkinterdnd2 import TkinterDnD
 from ttkbootstrap.dialogs import Messagebox
 from ttkbootstrap.widgets import ToastNotification
 
-from common import CACHE_DB, DEFAULT_REQUESTS_PER_MINUTE, DEFAULT_SCAN_WORKERS, DEFAULT_UPLOAD_TIMEOUT_MINUTES, ScannerConfig, ScanResult, THEME_AUTO, UPLOAD_AUTO, get_theme_mode, is_valid_api_key
+from common import (
+    CACHE_DB,
+    DEFAULT_REQUESTS_PER_MINUTE,
+    DEFAULT_SCAN_WORKERS,
+    DEFAULT_UPLOAD_TIMEOUT_MINUTES,
+    ScannerConfig,
+    ScanResult,
+    THEME_AUTO,
+    UPLOAD_AUTO,
+    get_theme_mode,
+    is_valid_api_key,
+)
 
 from .os_detect import IS_WINDOWS, IS_MACOS, IS_LINUX
 from .style import apply_theme, apply_titlebar_theme, theme_name
@@ -284,7 +295,7 @@ class VirusProbeGUI(ttk.Window):
         if self._is_busy:
             return
         if not self.view.item_count():
-            self._show_info("No Items", "Add at least one file or SHA-256 hash to scan.")
+            self._show_info("No Items", "Add at least one file or hash to scan.")
             return
         if not self.api_key:
             self._show_error("Missing API Key", "Set an API key before scanning.")
