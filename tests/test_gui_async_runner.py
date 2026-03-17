@@ -36,7 +36,6 @@ def test_submit_propagates_exception(runner) -> None:
 def test_submit_runs_concurrently(runner) -> None:
     """Two coroutines that await each other's events prove concurrent execution."""
     ev_a = asyncio.Event()
-    ev_b = asyncio.Event()
 
     async def _set_b_wait_a():
         runner.submit(_set_a(ev_a))  # schedule second coro from within first
@@ -112,7 +111,6 @@ def test_close_cancels_pending_tasks() -> None:
     r.close()
 
     # After close, the task should have been cancelled
-    cancelled_fut = r.submit(_wait_for_event(cancelled)) if r._loop else None
     # loop is gone after close; check via the shared event set before loop stopped
     assert cancelled.is_set()
 

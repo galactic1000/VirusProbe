@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from common.models import ResultStatus, ScannerConfig, ScanResult, ScanTargetKind
 from gui.app import VirusProbeGUI
 from gui.model import AppModel

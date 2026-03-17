@@ -1,8 +1,6 @@
 from __future__ import annotations
 import time
 
-import pytest
-
 from common.rate_limit import AsyncRateLimiter
 
 

@@ -91,6 +91,36 @@ async def test_on_result_fires_per_item(service_factory, mocker) -> None:
     assert all(r.status == ResultStatus.OK for r in fired)
 
 
+@pytest.mark.parametrize("hash_len", [32, 40, 64])
+async def test_deduplicates_all_hash_types(service_factory, mocker, hash_len) -> None:
+    service = service_factory()
+    seen: list[str] = []
+
+    async def _prepare_target(target: ScanTarget, _) -> tuple[ScanResult | None, ScanTarget | None]:
+        seen.append(target.value)
+        return None, ScanTarget.from_hash(target.value)
+
+    async def _scan_live(_client, _rate_limiter, unresolved, _cancel_event=None) -> ScanResult:
+        return service_results.stats_result(
+            item=service_results.format_hash(unresolved.hash),
+            kind=ScanTargetKind.HASH,
+            file_hash=unresolved.hash,
+            stats=(0, 0, 1, 0),
+            was_cached=False,
+        )
+
+    mocker.patch.object(service, "_prepare_hash_scan_async", side_effect=_prepare_target)
+    mocker.patch.object(service, "_scan_live_async", side_effect=_scan_live)
+    h = "a" * hash_len
+    async with service:
+        results = await service.scan_targets([
+            ScanTarget.from_hash(h.upper()),
+            ScanTarget.from_hash(h),
+        ])
+    assert seen == [h.upper()]
+    assert len(results) == 1
+
+
 async def test_deduplicates_before_pipeline(service_factory, mocker) -> None:
     service = service_factory()
     seen: list[str] = []
