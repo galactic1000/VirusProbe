@@ -160,18 +160,18 @@ class ResultsTableModel(QAbstractTableModel):
 
 class ResultsFilterProxyModel(QSortFilterProxyModel):
     _STATUS_RANKS: dict[str, int] = {
-        "pending": 0,
-        "scanning...": 1,
-        "uploading...": 2,
-        "undetected": 3,
-        "clean": 4,
-        "uploaded - clean": 4,
-        "suspicious": 5,
-        "uploaded - suspicious": 5,
-        "malicious": 6,
-        "uploaded - malicious": 6,
+        "scanning...": 0,
+        "uploading...": 0,
+        "pending": 1,
+        "error": 2,
+        "malicious": 3,
+        "uploaded - malicious": 3,
+        "suspicious": 4,
+        "uploaded - suspicious": 4,
+        "undetected": 5,
+        "clean": 6,
+        "uploaded - clean": 6,
         "cancelled": 7,
-        "error": 8,
     }
 
     def __init__(self, parent: QObject | None = None) -> None:
