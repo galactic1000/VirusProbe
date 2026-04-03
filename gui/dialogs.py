@@ -53,27 +53,21 @@ class AddHashesDialog(QDialog):
         layout.setContentsMargins(24, 16, 24, 16)
         layout.setSpacing(12)
 
-        title = QLabel("Add Hashes")
+        title = QLabel("Enter or paste Hashes")
         font = title.font()
         font.setBold(True)
         font.setPointSize(font.pointSize() + 2)
         title.setFont(font)
         layout.addWidget(title)
 
-        helper = QLabel("Enter one hash per line. Supports MD5, SHA-1, and SHA-256.")
+        helper = QLabel("Enter or paste one hash per line. Supports MD5, SHA-1, and SHA-256.")
         helper.setWordWrap(True)
         layout.addWidget(helper)
 
         self._text = QPlainTextEdit()
-        self._text.setPlaceholderText("Enter or paste hashes, one per line")
+        self._text.setPlaceholderText("Example: 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f")
         self._text.setFocus()
         layout.addWidget(self._text)
-
-        example = QLabel("Example: 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f")
-        example.setObjectName("subtleText")
-        example.setWordWrap(True)
-        example.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(example)
 
         self._status_lbl = QLabel("")
         layout.addWidget(self._status_lbl)
