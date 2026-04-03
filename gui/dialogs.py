@@ -14,12 +14,9 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
-    QFrame,
-    QHBoxLayout,
     QInputDialog,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
@@ -70,10 +67,9 @@ class AddHashesDialog(QDialog):
         self._status_lbl = QLabel("")
         layout.addWidget(self._status_lbl)
 
-        btn_box = QDialogButtonBox()
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
         add_btn = btn_box.addButton("Add", QDialogButtonBox.ButtonRole.AcceptRole)
         add_btn.setObjectName("primaryButton")
-        btn_box.addButton(QDialogButtonBox.StandardButton.Cancel)
         add_btn.clicked.connect(self._add_hashes)
         btn_box.rejected.connect(self.reject)
         layout.addWidget(btn_box)
@@ -140,11 +136,10 @@ class ReportSavedDialog(QDialog):
         path_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         layout.addWidget(path_lbl)
 
-        btn_box = QDialogButtonBox()
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         open_report_btn = btn_box.addButton("Open Report", QDialogButtonBox.ButtonRole.ActionRole)
         open_report_btn.setObjectName("successButton")
         open_folder_btn = btn_box.addButton("Open Folder", QDialogButtonBox.ButtonRole.ActionRole)
-        btn_box.addButton(QDialogButtonBox.StandardButton.Close)
         open_report_btn.clicked.connect(self._on_open_report)
         open_folder_btn.clicked.connect(self._on_open_folder)
         btn_box.rejected.connect(self.accept)
@@ -156,66 +151,6 @@ class ReportSavedDialog(QDialog):
 
     def _on_open_folder(self) -> None:
         self._open_folder(self._output_path)
-        self.accept()
-
-
-class GenerateReportDialog(QDialog):
-    def __init__(self, parent: QWidget, default_dir: str) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Generate Report")
-        self.setMinimumWidth(440)
-        self._result: ReportRequest | None = None
-        default_name = f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        self._build(default_name, default_dir)
-
-    def _build(self, default_name: str, default_dir: str) -> None:
-        layout = QVBoxLayout(self)
-        form = QFormLayout()
-        form.setSpacing(8)
-
-        self._name_edit = QLineEdit(default_name)
-        self._name_edit.setValidator(QRegularExpressionValidator(QRegularExpression(r"[^/\\\\:*?\"<>|]+"), self))
-        form.addRow("Report Name:", self._name_edit)
-
-        self._fmt_combo = QComboBox()
-        self._fmt_combo.addItems(["json", "csv", "txt", "md"])
-        form.addRow("Format:", self._fmt_combo)
-
-        row = QHBoxLayout()
-        self._dir_edit = QLineEdit(default_dir)
-        row.addWidget(self._dir_edit)
-        browse_btn = QPushButton("Browse...")
-        browse_btn.clicked.connect(self._browse_folder)
-        row.addWidget(browse_btn)
-        form.addRow("Folder:", row)
-        layout.addLayout(form)
-
-        btn_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        create_btn = btn_box.button(QDialogButtonBox.StandardButton.Ok)
-        create_btn.setText("Create")
-        create_btn.setObjectName("primaryButton")
-        btn_box.accepted.connect(self._confirm)
-        btn_box.rejected.connect(self.reject)
-        layout.addWidget(btn_box)
-
-    def _browse_folder(self) -> None:
-        chosen = QFileDialog.getExistingDirectory(self, "Select report folder", self._dir_edit.text())
-        if chosen:
-            self._dir_edit.setText(chosen)
-
-    def _confirm(self) -> None:
-        name = self._name_edit.text().strip()
-        if not name:
-            QMessageBox.warning(self, "Invalid Name", "Enter a report name.")
-            return
-
-        folder_path = Path(self._dir_edit.text().strip() or Path.home())
-        folder_path.mkdir(parents=True, exist_ok=True)
-        fmt = self._fmt_combo.currentText().strip().lower()
-        output_path = str(folder_path / f"{name}.{fmt}")
-        self._result = ReportRequest(new_dir=str(folder_path), output_path=output_path, report_format=fmt)
         self.accept()
 
 
@@ -386,9 +321,33 @@ def show_add_hashes_dialog(parent: QWidget, add_item: Callable[[str, str], bool]
 
 
 def show_generate_report_dialog(parent: QWidget, default_dir: str) -> ReportRequest | None:
-    dialog = GenerateReportDialog(parent, default_dir)
-    dialog.exec()
-    return dialog._result
+    default_name = f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    default_path = str(Path(default_dir) / default_name)
+    filters = {
+        "json": "JSON Files (*.json)",
+        "csv": "CSV Files (*.csv)",
+        "txt": "Text Files (*.txt)",
+        "md": "Markdown Files (*.md)",
+    }
+    filter_to_format = {label: fmt for fmt, label in filters.items()}
+    selected_path, selected_filter = QFileDialog.getSaveFileName(
+        parent,
+        "Generate Report",
+        default_path,
+        ";;".join(filters.values()),
+        filters["json"],
+    )
+    if not selected_path:
+        return None
+
+    report_format = filter_to_format.get(selected_filter, "json")
+    chosen_path = Path(selected_path).with_suffix(f".{report_format}")
+    chosen_path.parent.mkdir(parents=True, exist_ok=True)
+    return ReportRequest(
+        new_dir=str(chosen_path.parent),
+        output_path=str(chosen_path),
+        report_format=report_format,
+    )
 
 
 def show_report_saved_dialog(

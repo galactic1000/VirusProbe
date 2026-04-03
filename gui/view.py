@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QFile, QModelIndex, QPersistentModelIndex, QRect, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QKeySequence, QPaintEvent, QPainter, QPalette, QShortcut
+from PySide6.QtGui import QAction, QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QKeySequence, QPaintEvent, QPainter, QPalette
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -182,10 +182,14 @@ class MainWindow:
         self.central_widget = self._load_ui()
         self._bind_widgets()
         self._build_table(on_drop_files)
-        self._build_actions(on_add_files, on_add_hashes)
-        self._build_shortcuts(
+        self._build_actions(
+            on_clear_cache=on_clear_cache,
+            on_set_api_key=on_set_api_key,
+            on_add_files=on_add_files,
+            on_add_hashes=on_add_hashes,
             on_remove_selected=on_remove_selected,
             on_clear_items=on_clear_items,
+            on_advanced=on_advanced,
             on_scan=on_scan,
             on_upload=on_upload,
             on_generate_report=on_generate_report,
@@ -274,46 +278,70 @@ class MainWindow:
 
     def _build_actions(
         self,
+        *,
+        on_clear_cache: Callable[[], None],
+        on_set_api_key: Callable[[], None],
         on_add_files: Callable[[], None],
         on_add_hashes: Callable[[], None],
-    ) -> None:
-        self.add_files_action = QAction("Add File(s)...", self.root)
-        self.add_files_action.triggered.connect(on_add_files)
-        self.add_hashes_action = QAction("Add Hash(es)...", self.root)
-        self.add_hashes_action.triggered.connect(on_add_hashes)
-
-        add_menu = QMenu(self.add_menu_btn)
-        add_menu.addAction(self.add_files_action)
-        add_menu.addAction(self.add_hashes_action)
-        self.add_menu_btn.setMenu(add_menu)
-
-    def _build_shortcuts(
-        self,
-        *,
         on_remove_selected: Callable[[], None],
         on_clear_items: Callable[[], None],
+        on_advanced: Callable[[], None],
         on_scan: Callable[[], None],
         on_upload: Callable[[], None],
         on_generate_report: Callable[[], None],
         on_copy_value: Callable[[str], None],
     ) -> None:
-        self._delete_shortcut = QShortcut(QKeySequence.StandardKey.Delete, self.table)
-        self._delete_shortcut.activated.connect(on_remove_selected)
+        self.set_api_key_action = QAction("Set API Key", self.root)
+        self.set_api_key_action.triggered.connect(on_set_api_key)
 
-        self._copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self.table)
-        self._copy_shortcut.activated.connect(lambda: self.copy_selected_value(on_copy_value))
+        self.clear_cache_action = QAction("Clear Cache", self.root)
+        self.clear_cache_action.triggered.connect(on_clear_cache)
 
-        self._clear_shortcut = QShortcut(QKeySequence("Ctrl+L"), self.root)
-        self._clear_shortcut.activated.connect(on_clear_items)
+        self.advanced_action = QAction("Advanced...", self.root)
+        self.advanced_action.triggered.connect(on_advanced)
 
-        self._scan_shortcut = QShortcut(QKeySequence("Ctrl+Shift+S"), self.root)
-        self._scan_shortcut.activated.connect(on_scan)
+        self.add_files_action = QAction("Add File(s)...", self.root)
+        self.add_files_action.triggered.connect(on_add_files)
 
-        self._upload_shortcut = QShortcut(QKeySequence("Ctrl+Shift+U"), self.root)
-        self._upload_shortcut.activated.connect(on_upload)
+        self.add_hashes_action = QAction("Add Hash(es)...", self.root)
+        self.add_hashes_action.triggered.connect(on_add_hashes)
 
-        self._report_shortcut = QShortcut(QKeySequence("Ctrl+Shift+R"), self.root)
-        self._report_shortcut.activated.connect(on_generate_report)
+        self.remove_selected_action = QAction("Remove Selected", self.table)
+        self.remove_selected_action.setShortcut(QKeySequence.StandardKey.Delete)
+        self.remove_selected_action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.remove_selected_action.triggered.connect(on_remove_selected)
+        self.table.addAction(self.remove_selected_action)
+
+        self.copy_value_action = QAction("Copy Value", self.table)
+        self.copy_value_action.setShortcut(QKeySequence.StandardKey.Copy)
+        self.copy_value_action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.copy_value_action.triggered.connect(lambda: self.copy_selected_value(on_copy_value))
+        self.table.addAction(self.copy_value_action)
+
+        self.clear_items_action = QAction("Clear List", self.root)
+        self.clear_items_action.setShortcut(QKeySequence("Ctrl+L"))
+        self.clear_items_action.triggered.connect(on_clear_items)
+        self.root.addAction(self.clear_items_action)
+
+        self.scan_action = QAction("Scan", self.root)
+        self.scan_action.setShortcut(QKeySequence("Ctrl+Shift+S"))
+        self.scan_action.triggered.connect(on_scan)
+        self.root.addAction(self.scan_action)
+
+        self.upload_action = QAction("Upload", self.root)
+        self.upload_action.setShortcut(QKeySequence("Ctrl+Shift+U"))
+        self.upload_action.triggered.connect(on_upload)
+        self.root.addAction(self.upload_action)
+
+        self.report_action = QAction("Generate Report", self.root)
+        self.report_action.setShortcut(QKeySequence("Ctrl+Shift+R"))
+        self.report_action.triggered.connect(on_generate_report)
+        self.root.addAction(self.report_action)
+
+        add_menu = QMenu(self.add_menu_btn)
+        add_menu.addAction(self.add_files_action)
+        add_menu.addAction(self.add_hashes_action)
+        self.add_menu_btn.setMenu(add_menu)
 
     def _wire_buttons(
         self,
@@ -327,14 +355,15 @@ class MainWindow:
         on_upload: Callable[[], None],
         on_generate_report: Callable[[], None],
     ) -> None:
-        self.set_api_key_btn.clicked.connect(on_set_api_key)
-        self.clear_cache_btn.clicked.connect(on_clear_cache)
-        self.advanced_btn.clicked.connect(on_advanced)
-        self.remove_btn.clicked.connect(on_remove_selected)
-        self.clear_btn.clicked.connect(on_clear_items)
-        self.scan_btn.clicked.connect(on_scan)
-        self.upload_action_btn.clicked.connect(on_upload)
-        self.report_btn.clicked.connect(on_generate_report)
+        del on_clear_cache, on_set_api_key, on_remove_selected, on_clear_items, on_advanced, on_scan, on_upload, on_generate_report
+        self.set_api_key_btn.clicked.connect(self.set_api_key_action.trigger)
+        self.clear_cache_btn.clicked.connect(self.clear_cache_action.trigger)
+        self.advanced_btn.clicked.connect(self.advanced_action.trigger)
+        self.remove_btn.clicked.connect(self.remove_selected_action.trigger)
+        self.clear_btn.clicked.connect(self.clear_items_action.trigger)
+        self.scan_btn.clicked.connect(self.scan_action.trigger)
+        self.upload_action_btn.clicked.connect(self.upload_action.trigger)
+        self.report_btn.clicked.connect(self.report_action.trigger)
 
     def bind_state(self, state: UiState) -> None:
         state.api_status_changed.connect(self.set_api_status_text)
@@ -371,36 +400,47 @@ class MainWindow:
 
     @Slot(bool)
     def set_scan_button_enabled(self, enabled: bool) -> None:
+        self.scan_action.setEnabled(enabled)
         self.scan_btn.setEnabled(enabled)
 
     def _disconnect_scan_button(self) -> None:
         try:
-            self.scan_btn.clicked.disconnect()
+            self.scan_action.triggered.disconnect()
         except RuntimeError:
             pass
 
     def set_scan_button_scan(self, on_scan: Callable[[], None]) -> None:
         self.scan_btn.setObjectName("primaryButton")
         self.scan_btn.setText("Scan")
-        self.scan_btn.setEnabled(True)
+        self.scan_action.setText("Scan")
+        self.scan_action.setEnabled(True)
         self._disconnect_scan_button()
-        self.scan_btn.clicked.connect(on_scan)
+        self.scan_action.triggered.connect(on_scan)
+        self.scan_btn.setEnabled(True)
         _refresh_style(self.scan_btn)
 
     def set_scan_button_cancel(self, on_cancel: Callable[[], None]) -> None:
         self.scan_btn.setObjectName("dangerButton")
         self.scan_btn.setText("Cancel")
-        self.scan_btn.setEnabled(True)
+        self.scan_action.setText("Cancel")
+        self.scan_action.setEnabled(True)
         self._disconnect_scan_button()
-        self.scan_btn.clicked.connect(on_cancel)
+        self.scan_action.triggered.connect(on_cancel)
+        self.scan_btn.setEnabled(True)
         _refresh_style(self.scan_btn)
 
     @Slot(bool)
     def set_report_button_enabled(self, enabled: bool) -> None:
+        self.report_action.setEnabled(enabled)
         self.report_btn.setEnabled(enabled)
 
     @Slot(bool)
     def set_controls_enabled(self, enabled: bool) -> None:
+        self.set_api_key_action.setEnabled(enabled)
+        self.clear_cache_action.setEnabled(enabled)
+        self.advanced_action.setEnabled(enabled)
+        self.remove_selected_action.setEnabled(enabled)
+        self.clear_items_action.setEnabled(enabled)
         self.add_menu_btn.setEnabled(enabled)
         self.remove_btn.setEnabled(enabled)
         self.clear_btn.setEnabled(enabled)
@@ -414,6 +454,7 @@ class MainWindow:
 
     @Slot(bool)
     def set_upload_button_enabled(self, enabled: bool) -> None:
+        self.upload_action.setEnabled(enabled)
         self.upload_action_btn.setEnabled(enabled)
 
     @Slot(int, int)
@@ -442,28 +483,31 @@ class MainWindow:
         return self.results_model.add_item(item_type, value, f"I{next(self._iid_counter)}")
 
     def _selected_iids(self) -> list[str]:
+        iids: list[str] = []
+        for index in self._selected_source_rows():
+            if iid := self.results_model.get_iid_for_row(index.row()):
+                iids.append(iid)
+        return iids
+
+    def _selected_source_rows(self, *, preferred_column: int = 0) -> list[QModelIndex]:
         selection_model = self.table.selectionModel()
         if selection_model is None:
             return []
-        iids: list[str] = []
-        for proxy_index in selection_model.selectedRows():
-            source_index = self.proxy_model.mapToSource(proxy_index)
-            iid = self.results_model.get_iid_for_row(source_index.row())
-            if iid is not None:
-                iids.append(iid)
-        return iids
+        proxy_rows = selection_model.selectedRows(preferred_column)
+        if not proxy_rows:
+            current_index = selection_model.currentIndex()
+            if current_index.isValid():
+                proxy_rows = [self.proxy_model.index(current_index.row(), preferred_column)]
+        return [self.proxy_model.mapToSource(proxy_index) for proxy_index in proxy_rows if proxy_index.isValid()]
 
     def remove_selected(self) -> list[tuple[str, str]]:
         return self.results_model.remove_rows_by_iids(self._selected_iids())
 
     def copy_selected_value(self, on_copy_value: Callable[[str], None]) -> None:
-        selection_model = self.table.selectionModel()
-        if selection_model is None:
+        source_rows = self._selected_source_rows(preferred_column=1)
+        if not source_rows:
             return
-        rows = selection_model.selectedRows(1)
-        if not rows:
-            return
-        source_index = self.proxy_model.mapToSource(rows[0])
+        source_index = source_rows[0]
         value = self.results_model.data(self.results_model.index(source_index.row(), 1))
         if value is not None:
             on_copy_value(str(value))

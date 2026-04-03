@@ -220,8 +220,8 @@ class VirusProbeGUI(QMainWindow):
         self.is_clearing_cache = True
         self.ui_state.controls_enabled_changed.emit(False)
         self.ui_state.scan_button_enabled_changed.emit(False)
-        self.ui_state.report_button_enabled_changed.emit(False)
         self._set_progress_text("Clearing cache...")
+        self.ui_state.report_button_enabled_changed.emit(False)
         self._update_upload_action_visibility()
         self._start_worker(lambda _worker: self.model.clear_cache(), self._finish_clear_cache, self._handle_clear_cache_error)
 
@@ -337,8 +337,8 @@ class VirusProbeGUI(QMainWindow):
         for entry in self.pending_entries:
             self.view.set_row_status(entry.iid, "Scanning...")
 
-        self._begin_busy_state(self.on_scan)
         self.is_scanning = True
+        self._begin_busy_state(self.on_scan)
         self.ui_state.report_button_enabled_changed.emit(False)
         self._set_progress_text("Scanning...")
 
@@ -395,8 +395,8 @@ class VirusProbeGUI(QMainWindow):
         for entry in entries:
             self.view.set_row_status(entry.iid, "Uploading...")
 
-        self._begin_busy_state(self._cancel_upload)
         self.is_uploading = True
+        self._begin_busy_state(self._cancel_upload)
         self.ui_state.progress_changed.emit(0, len(entries))
         self._set_progress_text("Uploading...")
 
