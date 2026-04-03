@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Event
 from collections.abc import Callable
+
+from PySide6.QtCore import QIODeviceBase, QSaveFile
 
 from common import (
     ResultStatus,
@@ -14,8 +17,8 @@ from common import (
     ScanTarget,
     ScanTargetKind,
     UploadTarget,
-    write_report,
 )
+from common.reporting import render_report_text
 
 
 @dataclass
@@ -140,13 +143,39 @@ class ReportRequest:
     report_format: str
 
 
+def write_report_atomic(
+    results: list[ScanResult],
+    output_path: str,
+    report_format: str,
+    separator_width: int = 72,
+) -> None:
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    save_file = QSaveFile(str(output))
+    open_mode = QIODeviceBase.OpenModeFlag.WriteOnly | QIODeviceBase.OpenModeFlag.Text
+    if not save_file.open(open_mode):
+        raise OSError(f"Unable to open report for writing: {output_path}: {save_file.errorString()}")
+
+    try:
+        payload = render_report_text(results, report_format, separator_width).encode("utf-8")
+        written = save_file.write(payload)
+        if written != len(payload):
+            raise OSError(f"Failed to write complete report: {output_path}")
+        if not save_file.commit():
+            raise OSError(f"Failed to save report atomically: {output_path}: {save_file.errorString()}")
+    except Exception:
+        save_file.cancelWriting()
+        raise
+
+
 async def run_report_workflow_async(
     results: list[ScanResult],
     request: ReportRequest,
     separator_width: int,
 ) -> ReportRequest:
     await asyncio.to_thread(
-        write_report,
+        write_report_atomic,
         results,
         request.output_path,
         request.report_format,

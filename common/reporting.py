@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import io
 import json
 from collections.abc import Sequence
 from datetime import datetime
@@ -42,38 +43,31 @@ def _md_cell(value: object) -> str:
     return str(value).replace("|", "\\|")
 
 
-def write_report(
+def render_report_text(
     results: Sequence[ScanResult],
-    output_path: str,
     report_format: str,
     separator_width: int = 72,
-) -> None:
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
+) -> str:
     if report_format not in {"csv", "json", "md", "txt"}:
         raise ValueError(f"Unsupported report format: {report_format}")
     if report_format == "csv":
         fieldnames = ["item", "type", "file_hash", "malicious", "suspicious", "harmless", "undetected", "threat_level", "status", "message"]
-        with output.open("w", newline="", encoding="utf-8") as f:
+        with io.StringIO(newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(result.to_dict() for result in results)
-        return
+            return f.getvalue()
     generated_at = datetime.now().isoformat(timespec="seconds")
     summary = build_summary(results)
     if report_format == "json":
-        output.write_text(
-            json.dumps(
-                {
-                    "generated_at": generated_at,
-                    "summary": summary,
-                    "results": [result.to_dict() for result in results],
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
+        return json.dumps(
+            {
+                "generated_at": generated_at,
+                "summary": summary,
+                "results": [result.to_dict() for result in results],
+            },
+            indent=2,
         )
-        return
     if report_format == "md":
         lines = [
             "# Virus Scan Report",
@@ -98,8 +92,7 @@ def write_report(
                 f"{r.suspicious} | {r.harmless} | {r.undetected} | "
                 f"{_md_cell(r.threat_level)} | {_md_cell(r.status)} |"
             )
-        output.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        return
+        return "\n".join(lines) + "\n"
     lines = [
         "VIRUS SCAN REPORT",
         "=" * separator_width,
@@ -122,4 +115,18 @@ def write_report(
             f"H:{r.harmless} U:{r.undetected} "
             f"=> {r.threat_level} ({r.status})"
         )
-    output.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
+
+
+def write_report(
+    results: Sequence[ScanResult],
+    output_path: str,
+    report_format: str,
+    separator_width: int = 72,
+) -> None:
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        render_report_text(results, report_format, separator_width),
+        encoding="utf-8",
+    )

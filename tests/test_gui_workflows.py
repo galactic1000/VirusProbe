@@ -154,7 +154,7 @@ async def test_report_workflow_delegates_write(mocker, tmp_path) -> None:
         report_format="json",
     )
     results = [ScanResult(item="x", kind=ScanTargetKind.FILE, file_hash="a" * 64)]
-    write_mock = mocker.patch("gui.workflows.write_report")
+    write_mock = mocker.patch("gui.workflows.write_report_atomic")
 
     returned = await run_report_workflow_async(results, request, 95)
 

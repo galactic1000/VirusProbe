@@ -16,7 +16,6 @@ from gui.presenter import AppPresenter, masked_api_key_text, upload_indicator_te
 def model(mocker, tmp_path):
     mocker.patch("gui.model.get_api_key", return_value="a" * 64)
     mocker.patch("gui.model.get_upload_mode", return_value="never")
-    mocker.patch("gui.model.get_theme_mode", return_value="auto")
     mocker.patch("gui.model.get_requests_per_minute", return_value=None)
     mocker.patch("gui.model.get_workers", return_value=None)
     mocker.patch("gui.model.get_upload_timeout_minutes", return_value=None)
@@ -66,23 +65,23 @@ def presenter(mocker):
 
 def test_presenter_set_api_key_text(presenter) -> None:
     presenter.set_api_key_text("API Key: abcd...efgh")
-    presenter.view.api_status_var.set.assert_called_once_with("API Key: abcd...efgh")
+    presenter.view.set_api_status_text.assert_called_once_with("API Key: abcd...efgh")
 
 
 def test_presenter_set_upload_indicator_text(presenter) -> None:
     presenter.set_upload_indicator_text("[Upload: auto]")
-    presenter.view.upload_indicator_var.set.assert_called_once_with("[Upload: auto]")
+    presenter.view.set_upload_indicator_text.assert_called_once_with("[Upload: auto]")
 
 
 def test_presenter_set_queued_count(presenter) -> None:
     presenter.set_queued_count(5)
-    presenter.view.progress_var.set.assert_called_once_with("Items queued: 5")
+    presenter.view.set_progress_text.assert_called_once_with("Items queued: 5")
 
 
 def test_presenter_set_canceling(presenter) -> None:
     presenter.set_canceling("Cancelling...")
-    presenter.view.scan_btn.configure.assert_called_once_with(state="disabled")
-    presenter.view.progress_var.set.assert_called_once_with("Cancelling...")
+    presenter.view.set_scan_button_enabled.assert_called_once_with(False)
+    presenter.view.set_progress_text.assert_called_once_with("Cancelling...")
 
 
 @pytest.mark.parametrize("mode,has_uploadable,busy,expect_show,expect_enabled", [
@@ -184,7 +183,6 @@ def test_remove_results(model) -> None:
 def test_invalid_loaded_api_key_treated_as_unset(mocker, tmp_path) -> None:
     mocker.patch("gui.model.get_api_key", return_value="invalid-key")
     mocker.patch("gui.model.get_upload_mode", return_value="never")
-    mocker.patch("gui.model.get_theme_mode", return_value="auto")
     mocker.patch("gui.model.get_requests_per_minute", return_value=None)
     mocker.patch("gui.model.get_workers", return_value=None)
     mocker.patch("gui.model.get_upload_timeout_minutes", return_value=None)

@@ -1,133 +1,50 @@
-"""Theme and dark-mode helpers for the GUI."""
+"""Qt-native theme helpers for the GUI."""
 
 from __future__ import annotations
 
-import re
-import subprocess
-import tkinter as tk
+from pathlib import Path
 
-from ttkbootstrap import Style
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
 
-from .os_detect import IS_WINDOWS, IS_MACOS, IS_LINUX
-
-if IS_WINDOWS:
-    import ctypes
-    import winreg
+_DARK_THEME = "dark"
+_LIGHT_THEME = "light"
+_ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 
 
-_LIGHT_THEME = "flatly"
-_DARK_THEME = "darkly"
-_DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-_LINUX_COLOR_SCHEME_RE = re.compile(r"uint32\s+(\d+)")
+def _read_asset(name: str) -> str:
+    return (_ASSETS_DIR / name).read_text(encoding="utf-8")
 
 
-def theme_name(theme_mode: str) -> str:
-    mode = (theme_mode or "auto").strip().lower()
-    if mode == "dark":
-        return _DARK_THEME
-    elif mode == "light":
-        return _LIGHT_THEME
-    return _DARK_THEME if _system_prefers_dark_mode() else _LIGHT_THEME
+def is_dark_mode(theme_mode: str = "auto") -> bool:
+    mode = (theme_mode or "").strip().lower()
+    if mode == _DARK_THEME:
+        return True
+    if mode == _LIGHT_THEME:
+        return False
+    app = QApplication.instance()
+    if app is None:
+        return False
+    return app.styleHints().colorScheme() == Qt.ColorScheme.Dark # type: ignore
 
 
-def apply_theme(root: tk.Tk, theme_mode: str = "auto") -> None:
-    dark_mode = _apply_bootstrap_theme(theme_mode)
-    _apply_windows_titlebar_mode(root, dark_mode)
+def theme_name(theme_mode: str = "auto") -> str:
+    return _DARK_THEME if is_dark_mode(theme_mode) else _LIGHT_THEME
 
 
-def apply_titlebar_theme(widget: tk.Misc) -> None:
-    style = Style.get_instance()
-    if style is None:
+def apply_theme(theme_mode: str = "auto") -> None:
+    """Apply a restrained application stylesheet on top of Qt/Fusion."""
+    mode = (theme_mode or "").strip().lower()
+    app = QApplication.instance()
+    if app is None:
         return
-    theme = getattr(style, "theme", None)
-    dark_mode = getattr(theme, "name", "") == _DARK_THEME
-    _apply_windows_titlebar_mode(widget, dark_mode)
-
-
-def _apply_bootstrap_theme(theme_mode: str) -> bool:
-    theme = theme_name(theme_mode)
-    try:
-        Style.get_instance().theme_use(theme) # type: ignore[union-attr]
-    except Exception:
-        return False
-    return theme == _DARK_THEME
-
-
-def _system_prefers_dark_mode() -> bool:
-    if IS_WINDOWS:
-        return _windows_prefers_dark_mode()
-    elif IS_MACOS:
-        return _macos_prefers_dark_mode()
-    elif IS_LINUX:
-        return _linux_prefers_dark_mode()
-    return False
-
-
-def _windows_prefers_dark_mode() -> bool:
-    try:
-        with winreg.OpenKey( # type: ignore[attr-defined]
-            winreg.HKEY_CURRENT_USER, # type: ignore[attr-defined]
-            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-        ) as key:
-            apps_value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme") # type: ignore[attr-defined]
-            return int(apps_value) == 0
-    except Exception:
-        return False
-
-
-def _macos_prefers_dark_mode() -> bool:
-    try:
-        proc = subprocess.run(
-            ["defaults", "read", "-g", "AppleInterfaceStyle"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return proc.returncode == 0 and proc.stdout.strip().lower() == "dark"
-    except Exception:
-        return False
-
-
-def _linux_prefers_dark_mode() -> bool:
-    try:
-        proc = subprocess.run(
-            [
-                "gdbus",
-                "call",
-                "--session",
-                "--dest",
-                "org.freedesktop.portal.Desktop",
-                "--object-path",
-                "/org/freedesktop/portal/desktop",
-                "--method",
-                "org.freedesktop.portal.Settings.Read",
-                "org.freedesktop.appearance",
-                "color-scheme",
-            ],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if proc.returncode != 0:
-            return False
-        m = _LINUX_COLOR_SCHEME_RE.search(proc.stdout)
-        if not m:
-            return False
-        return int(m.group(1)) == 1
-    except Exception:
-        return False
-
-
-def _apply_windows_titlebar_mode(root: tk.Misc, dark_mode: bool) -> None:
-    if not IS_WINDOWS:
-        return
-    try:
-        root.update_idletasks()
-        hwnd = root.winfo_id()
-        top_hwnd = ctypes.windll.user32.GetParent(hwnd) or hwnd  # type: ignore[possibly-undefined]
-        value = ctypes.c_int(1 if dark_mode else 0)  # type: ignore[possibly-undefined]
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(  # type: ignore[possibly-undefined]
-            ctypes.c_void_p(top_hwnd), _DWMWA_USE_IMMERSIVE_DARK_MODE, ctypes.byref(value), ctypes.sizeof(value)  # type: ignore[possibly-undefined]
-        )
-    except Exception:
-        pass
+    hints = app.styleHints() # type: ignore
+    if mode == _DARK_THEME:
+        hints.setColorScheme(Qt.ColorScheme.Dark)
+    elif mode == _LIGHT_THEME:
+        hints.setColorScheme(Qt.ColorScheme.Light)
+    else:
+        hints.unsetColorScheme()
+    app.setStyleSheet(_read_asset("dark.qss") # type: ignore
+                      if is_dark_mode(theme_mode) 
+                      else _read_asset("light.qss"))

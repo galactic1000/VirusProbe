@@ -14,10 +14,8 @@ from gui.app import VirusProbeGUI
 from tests.helpers import (
     FakePollingClient,
     FakeRateLimiter,
-    FakeRunner,
     FakeUploadClient,
     FakeVTStatsClient,
-    ImmediateFuture,
 )
 
 
@@ -106,7 +104,7 @@ def upload_client_factory():
 def app_stub():
     """Fixture that returns a minimally initialized VirusProbeGUI stub."""
 
-    app = object.__new__(VirusProbeGUI)
+    app = VirusProbeGUI.__new__(VirusProbeGUI)
     app.is_scanning = False
     app.is_uploading = False
     app.is_clearing_cache = False
@@ -118,13 +116,13 @@ def app_stub():
 
 @pytest.fixture
 def runner_factory(mocker):
-    """Fixture that attaches an immediate async runner and callback mock."""
+    """Fixture that intercepts QtAsyncio task startup."""
 
     def _attach(app: VirusProbeGUI, callback_name: str):
-        future = ImmediateFuture()
-        submit = mocker.Mock(return_value=future)
-        app._async_runner = FakeRunner(submit)  # type: ignore[assignment]
-        setattr(app, callback_name, mocker.Mock())
-        return future, submit
+        start_task = mocker.Mock()
+        app._start_task = start_task  # type: ignore[method-assign]
+        callback = mocker.Mock()
+        setattr(app, callback_name, callback)
+        return start_task, callback
 
     return _attach
