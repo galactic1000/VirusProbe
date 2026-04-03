@@ -159,6 +159,21 @@ class ResultsTableModel(QAbstractTableModel):
 
 
 class ResultsFilterProxyModel(QSortFilterProxyModel):
+    _STATUS_RANKS: dict[str, int] = {
+        "pending": 0,
+        "scanning...": 1,
+        "uploading...": 2,
+        "undetected": 3,
+        "clean": 4,
+        "uploaded - clean": 4,
+        "suspicious": 5,
+        "uploaded - suspicious": 5,
+        "malicious": 6,
+        "uploaded - malicious": 6,
+        "cancelled": 7,
+        "error": 8,
+    }
+
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._search_text = ""
@@ -184,6 +199,20 @@ class ResultsFilterProxyModel(QSortFilterProxyModel):
             if value is not None and self._search_text in str(value).lower():
                 return True
         return False
+
+    def lessThan(
+        self,
+        left: QModelIndex | QPersistentModelIndex,
+        right: QModelIndex | QPersistentModelIndex,
+    ) -> bool:
+        if left.column() == 2 and right.column() == 2:
+            return self._status_sort_key(left.data()) < self._status_sort_key(right.data())
+        return super().lessThan(left, right)
+
+    @classmethod
+    def _status_sort_key(cls, value: object) -> tuple[int, str]:
+        text = str(value or "").strip().lower()
+        return cls._STATUS_RANKS.get(text, 999), text
 
 
 class UiState(QObject):

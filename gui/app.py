@@ -114,6 +114,7 @@ class VirusProbeGUI(QMainWindow):
             on_upload=self.on_upload,
             on_drop_files=self.on_drop_files,
             on_generate_report=self.on_generate_report,
+            on_copy_value=self.on_copy_value,
         )
         self.view.bind_state(self.ui_state)
         self.setCentralWidget(self.view.central_widget)
@@ -313,6 +314,14 @@ class VirusProbeGUI(QMainWindow):
             self._finish_report_success,
             self._finish_report_error,
         )
+
+    def on_copy_value(self, value: str) -> None:
+        clipboard = QApplication.clipboard()
+        if clipboard is None:
+            self._show_error("Clipboard Error", "System clipboard is unavailable.")
+            return
+        clipboard.setText(value)
+        self._set_progress_text("Copied value to clipboard")
 
     def _start_scan(self) -> None:
         if self._is_busy:

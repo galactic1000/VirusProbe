@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QFile, QModelIndex, QPersistentModelIndex, QRect, Qt, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QPaintEvent, QPainter, QPalette
+from PySide6.QtGui import QAction, QColor, QDragEnterEvent, QDragMoveEvent, QDropEvent, QKeySequence, QPaintEvent, QPainter, QPalette, QShortcut
 from PySide6.QtUiTools import QUiLoader
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -100,7 +100,7 @@ class DropTableView(QTableView):
         self.setDragDropMode(QAbstractItemView.DragDropMode.DropOnly)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.setSortingEnabled(False)
+        self.setSortingEnabled(True)
         self.setAlternatingRowColors(False)
         self.setShowGrid(False)
         self.setWordWrap(False)
@@ -173,6 +173,7 @@ class MainWindow:
         on_upload: Callable[[], None],
         on_drop_files: Callable[[list[str]], None],
         on_generate_report: Callable[[], None],
+        on_copy_value: Callable[[str], None],
     ) -> None:
         self.root = root
         self._iid_counter = itertools.count(1)
@@ -182,6 +183,14 @@ class MainWindow:
         self._bind_widgets()
         self._build_table(on_drop_files)
         self._build_actions(on_add_files, on_add_hashes)
+        self._build_shortcuts(
+            on_remove_selected=on_remove_selected,
+            on_clear_items=on_clear_items,
+            on_scan=on_scan,
+            on_upload=on_upload,
+            on_generate_report=on_generate_report,
+            on_copy_value=on_copy_value,
+        )
         self._wire_buttons(
             on_clear_cache=on_clear_cache,
             on_set_api_key=on_set_api_key,
@@ -277,6 +286,34 @@ class MainWindow:
         add_menu.addAction(self.add_files_action)
         add_menu.addAction(self.add_hashes_action)
         self.add_menu_btn.setMenu(add_menu)
+
+    def _build_shortcuts(
+        self,
+        *,
+        on_remove_selected: Callable[[], None],
+        on_clear_items: Callable[[], None],
+        on_scan: Callable[[], None],
+        on_upload: Callable[[], None],
+        on_generate_report: Callable[[], None],
+        on_copy_value: Callable[[str], None],
+    ) -> None:
+        self._delete_shortcut = QShortcut(QKeySequence.StandardKey.Delete, self.table)
+        self._delete_shortcut.activated.connect(on_remove_selected)
+
+        self._copy_shortcut = QShortcut(QKeySequence.StandardKey.Copy, self.table)
+        self._copy_shortcut.activated.connect(lambda: self.copy_selected_value(on_copy_value))
+
+        self._clear_shortcut = QShortcut(QKeySequence("Ctrl+L"), self.root)
+        self._clear_shortcut.activated.connect(on_clear_items)
+
+        self._scan_shortcut = QShortcut(QKeySequence("Ctrl+Shift+S"), self.root)
+        self._scan_shortcut.activated.connect(on_scan)
+
+        self._upload_shortcut = QShortcut(QKeySequence("Ctrl+Shift+U"), self.root)
+        self._upload_shortcut.activated.connect(on_upload)
+
+        self._report_shortcut = QShortcut(QKeySequence("Ctrl+Shift+R"), self.root)
+        self._report_shortcut.activated.connect(on_generate_report)
 
     def _wire_buttons(
         self,
@@ -418,6 +455,18 @@ class MainWindow:
 
     def remove_selected(self) -> list[tuple[str, str]]:
         return self.results_model.remove_rows_by_iids(self._selected_iids())
+
+    def copy_selected_value(self, on_copy_value: Callable[[str], None]) -> None:
+        selection_model = self.table.selectionModel()
+        if selection_model is None:
+            return
+        rows = selection_model.selectedRows(1)
+        if not rows:
+            return
+        source_index = self.proxy_model.mapToSource(rows[0])
+        value = self.results_model.data(self.results_model.index(source_index.row(), 1))
+        if value is not None:
+            on_copy_value(str(value))
 
     def clear_items(self) -> None:
         self.results_model.clear()
