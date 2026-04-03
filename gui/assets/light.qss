@@ -24,6 +24,7 @@ QLabel#sectionLabel {
 }
 QLabel#appTitle {
     color: #112235;
+    font-size: 20pt;
     font-weight: 700;
 }
 QLabel#subtleText {
@@ -95,6 +96,11 @@ QPushButton#primaryButton:hover, QDialogButtonBox QPushButton#primaryButton:hove
 QPushButton#primaryButton:pressed, QDialogButtonBox QPushButton#primaryButton:pressed {
     background-color: #2058c5;
 }
+QPushButton#primaryButton:disabled, QDialogButtonBox QPushButton#primaryButton:disabled {
+    color: #8e99a6;
+    border-color: #d2dde9;
+    background-color: #eff3f7;
+}
 QPushButton#accentButton, QDialogButtonBox QPushButton#accentButton {
     background-color: #edf4fb;
     border-color: #b8cde3;
@@ -106,6 +112,11 @@ QPushButton#accentButton:hover, QDialogButtonBox QPushButton#accentButton:hover 
 }
 QPushButton#accentButton:pressed, QDialogButtonBox QPushButton#accentButton:pressed {
     background-color: #d7e6f4;
+}
+QPushButton#accentButton:disabled, QDialogButtonBox QPushButton#accentButton:disabled {
+    color: #8e99a6;
+    border-color: #d2dde9;
+    background-color: #eff3f7;
 }
 QPushButton#successButton, QDialogButtonBox QPushButton#successButton {
     background-color: #e2f4e8;
@@ -119,6 +130,11 @@ QPushButton#successButton:hover, QDialogButtonBox QPushButton#successButton:hove
 QPushButton#successButton:pressed, QDialogButtonBox QPushButton#successButton:pressed {
     background-color: #d6e8dd;
 }
+QPushButton#successButton:disabled, QDialogButtonBox QPushButton#successButton:disabled {
+    color: #8e99a6;
+    border-color: #d2dde9;
+    background-color: #eff3f7;
+}
 QPushButton#dangerButton, QDialogButtonBox QPushButton#dangerButton {
     background-color: #fde8eb;
     border-color: #d9546a;
@@ -130,6 +146,11 @@ QPushButton#dangerButton:hover, QDialogButtonBox QPushButton#dangerButton:hover 
 }
 QPushButton#dangerButton:pressed, QDialogButtonBox QPushButton#dangerButton:pressed {
     background-color: #f2c4cb;
+}
+QPushButton#dangerButton:disabled, QDialogButtonBox QPushButton#dangerButton:disabled {
+    color: #8e99a6;
+    border-color: #d2dde9;
+    background-color: #eff3f7;
 }
 QMenu {
     background-color: #fbfdff;

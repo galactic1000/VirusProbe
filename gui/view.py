@@ -244,10 +244,10 @@ class MainWindow:
         self.progress_bar = self._require(QProgressBar, "progressBar")
 
         title_font = self.app_title.font()
-        title_font.setPointSize(16)
         title_font.setBold(True)
         self.app_title.setFont(title_font)
         self._api_status_lbl.setObjectName("subtleText")
+        self._api_status_lbl.setContentsMargins(12, 6, 0, 0)
         self._upload_indicator_lbl.setObjectName("accentText")
         self._progress_lbl.setObjectName("statusText")
         self.clear_cache_btn.setObjectName("dangerButton")
