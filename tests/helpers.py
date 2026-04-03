@@ -10,19 +10,6 @@ class FakeRateLimiter:
         self.acquire = mocker.AsyncMock(return_value=None)
 
 
-class ImmediateFuture:
-    def __init__(self) -> None:
-        self.callbacks = []
-
-    def add_done_callback(self, callback) -> None:
-        self.callbacks.append(callback)
-
-
-class FakeRunner:
-    def __init__(self, submit) -> None:
-        self.submit = submit
-
-
 def stats_dict(stats: tuple[int, int, int, int]) -> dict[str, int]:
     return {
         "malicious": stats[0],

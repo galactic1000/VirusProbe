@@ -121,6 +121,9 @@ class _ScanStartView:
     def set_row_status(self, iid: str, status: str) -> None:
         self.status_updates.append((iid, status))
 
+    def set_report_button_enabled(self, enabled: bool) -> None:
+        self.report_button.configure(state="normal" if enabled else "disabled")
+
 
 class _UploadSelectionTable:
     def __init__(self, selected: bool) -> None:
@@ -134,10 +137,13 @@ class _UploadSelectionTable:
 
 class _UploadStartView:
     def __init__(self, file_entries: list[tuple[str, str]], selected: bool = False) -> None:
-        self.table = _UploadSelectionTable(selected)
+        self._selected = selected
         self._file_entries = file_entries
         self.status_updates = []
         self.progress_calls = []
+
+    def has_selection(self) -> bool:
+        return self._selected
 
     def undetected_files(self, selected_only: bool = False) -> list[tuple[str, str]]:
         return list(self._file_entries)
@@ -178,14 +184,13 @@ def test_advanced_invalidates_scanner(tmp_path, mocker) -> None:
     mocker.patch("gui.model.save_workers_to_env")
     mocker.patch("gui.model.save_upload_timeout_minutes_to_env")
     mocker.patch("gui.model.save_upload_mode_to_env")
-    mocker.patch("gui.model.save_theme_mode_to_env")
 
     model = AppModel(cache_db=tmp_path / "vt_cache.db")
     fake_scanner = _FakeScanner()
     model._scanner = fake_scanner  # type: ignore[attr-defined]
     model._scanner_config = ("key", ScannerConfig(requests_per_minute=4, max_workers=4, upload_timeout_minutes=20))
 
-    model.set_advanced(10, 2, 30, model.upload_mode, model.theme_mode)
+    model.set_advanced(10, 2, 30, model.upload_mode)
 
     assert model._scanner is fake_scanner  # noqa: SLF001
     assert model._scanner_config is None  # noqa: SLF001
@@ -196,7 +201,6 @@ async def test_clear_cache_uses_temp_service(tmp_path, mocker) -> None:
     monkeypatches = {
         "gui.model.get_api_key": lambda: None,
         "gui.model.get_upload_mode": lambda: "never",
-        "gui.model.get_theme_mode": lambda: "auto",
         "gui.model.get_requests_per_minute": lambda: None,
         "gui.model.get_workers": lambda: None,
         "gui.model.get_upload_timeout_minutes": lambda: None,
@@ -232,7 +236,6 @@ async def test_clear_cache_uses_temp_service(tmp_path, mocker) -> None:
 def test_hash_result_key_is_file_hash(tmp_path, mocker) -> None:
     mocker.patch("gui.model.get_api_key", return_value=None)
     mocker.patch("gui.model.get_upload_mode", return_value="never")
-    mocker.patch("gui.model.get_theme_mode", return_value="auto")
     mocker.patch("gui.model.get_requests_per_minute", return_value=None)
     mocker.patch("gui.model.get_workers", return_value=None)
     mocker.patch("gui.model.get_upload_timeout_minutes", return_value=None)
@@ -280,7 +283,7 @@ def test_report_submits_workflow(mocker, tmp_path, app_stub, runner_factory) -> 
     app.view._result_keys = [("file", "x")]
     app._update_upload_action_visibility = mocker.Mock()
     app._set_progress_text = mocker.Mock()
-    future, submit = runner_factory(app, "_on_report_done")
+    start_task, callback = runner_factory(app, "_finish_report_success")
 
     request = ReportRequest(str(tmp_path), str(tmp_path / "report.json"), "json")
     mocker.patch("gui.app.show_generate_report_dialog", return_value=request)
@@ -295,8 +298,7 @@ def test_report_submits_workflow(mocker, tmp_path, app_stub, runner_factory) -> 
     app._update_upload_action_visibility.assert_called_once()
     app._set_progress_text.assert_called_once_with("Generating report...")
     workflow.assert_called_once_with(app.model.results_for_keys([("file", "x")]), request, 95)
-    submit.assert_called_once_with("workflow")
-    assert future.callbacks == [app._on_report_done]
+    start_task.assert_called_once_with("workflow", callback, app._finish_report_error)
 
 
 def test_report_uses_visible_order(mocker, tmp_path, app_stub, runner_factory) -> None:
@@ -308,7 +310,7 @@ def test_report_uses_visible_order(mocker, tmp_path, app_stub, runner_factory) -
     app.view._result_keys = [("file", "C:/sample.bin"), ("hash", "a" * 64)]
     app._update_upload_action_visibility = mocker.Mock()
     app._set_progress_text = mocker.Mock()
-    runner_factory(app, "_on_report_done")
+    runner_factory(app, "_finish_report_success")
 
     request = ReportRequest(str(tmp_path), str(tmp_path / "report.json"), "json")
     mocker.patch("gui.app.show_generate_report_dialog", return_value=request)
@@ -334,7 +336,7 @@ def test_scan_starts_pending_entries(mocker, app_stub, runner_factory) -> None:
     app._current_limits = mocker.Mock(return_value=(15, 3, 20))
     app._begin_busy_state = mocker.Mock()
     app._set_progress_text = mocker.Mock()
-    future, submit = runner_factory(app, "_on_scan_done")
+    start_task, callback = runner_factory(app, "_finish_scan_success")
     app._run_scan_async = mocker.Mock(return_value="scan-workflow")
 
     VirusProbeGUI._start_scan(app)
@@ -347,8 +349,7 @@ def test_scan_starts_pending_entries(mocker, app_stub, runner_factory) -> None:
     assert app.is_scanning is True
     assert app.view.report_button.calls[-1] == {"state": "disabled"}
     app._set_progress_text.assert_called_once_with("Scanning...")
-    submit.assert_called_once_with("scan-workflow")
-    assert future.callbacks == [app._on_scan_done]
+    start_task.assert_called_once_with("scan-workflow", callback, app._finish_scan_error)
     app._show_info.assert_not_called()
     app._show_error.assert_not_called()
 
@@ -361,7 +362,7 @@ def test_upload_starts_pending_entries(mocker, app_stub, runner_factory) -> None
     app._show_error = mocker.Mock()
     app._begin_busy_state = mocker.Mock()
     app._set_progress_text = mocker.Mock()
-    future, submit = runner_factory(app, "_on_upload_done")
+    start_task, callback = runner_factory(app, "_finish_upload_success")
     app._run_upload_async = mocker.Mock(return_value="upload-workflow")
 
     VirusProbeGUI._start_upload_selected(app)
@@ -375,8 +376,7 @@ def test_upload_starts_pending_entries(mocker, app_stub, runner_factory) -> None
     assert app.is_uploading is True
     assert app.view.progress_calls == [(0, 2)]
     app._set_progress_text.assert_called_once_with("Uploading...")
-    submit.assert_called_once_with("upload-workflow")
-    assert future.callbacks == [app._on_upload_done]
+    start_task.assert_called_once_with("upload-workflow", callback, app._finish_upload_error)
     app._show_error.assert_not_called()
 
 

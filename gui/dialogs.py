@@ -1,18 +1,32 @@
-"""Toplevel dialog windows for the VirusProbe GUI."""
+"""Dialog windows for the VirusProbe GUI."""
 
 from __future__ import annotations
 
-import textwrap
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from collections.abc import Callable
-import tkinter as tk
-from tkinter import filedialog
 
-import ttkbootstrap as ttk
-from ttkbootstrap.dialogs import Messagebox
-from ttkbootstrap.dialogs.base import Dialog
-from ttkbootstrap.dialogs.query import QueryDialog
+from PySide6.QtCore import QRegularExpression, QTimer, Qt
+from PySide6.QtGui import QRegularExpressionValidator
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSizePolicy,
+    QSpinBox,
+    QVBoxLayout,
+    QWidget,
+)
 
 from common import (
     THEME_AUTO,
@@ -23,114 +37,59 @@ from common import (
     UPLOAD_NEVER,
     is_valid_hash,
 )
-from .style import apply_titlebar_theme
 from .workflows import ReportRequest
 
 
-class AppDialog(Dialog):
-
-    resizable = (False, False)
-    minsize = (250, 15)
-
-    def build(self) -> None:
-        self._toplevel = ttk.Toplevel(
-            transient=self.master,
-            title=self._title,
-            resizable=self.resizable,
-            minsize=self.minsize,
-            windowtype="dialog",
-            iconify=True,
-        )
-
-        self._toplevel.withdraw()
-        self._toplevel.bind("<Escape>", lambda _: self._toplevel.destroy())
-
-        self.create_body(self._toplevel)
-        self.create_buttonbox(self._toplevel)
-        self._toplevel.update_idletasks()
-
-        width = self._toplevel.winfo_reqwidth()
-        height = self._toplevel.winfo_reqheight()
-        if width > 0 and height > 0:
-            self._toplevel.geometry(f"{width}x{height}")
-
-        apply_titlebar_theme(self._toplevel)
-        self._toplevel._titlebar_styled = True  # type: ignore[attr-defined]
-
-
-class MaskedDialog(QueryDialog):
-
-    def create_body(self, master: tk.Misc) -> None:
-        frame = ttk.Frame(master, padding=self._padding)
-        if self._prompt:
-            for part in self._prompt.split("\n"):
-                prompt = "\n".join(textwrap.wrap(part, width=self._width))
-                ttk.Label(frame, text=prompt).pack(pady=(0, 5), fill=tk.X, anchor=tk.N)
-
-        entry = ttk.Entry(master=frame, show="*")
-        entry.insert(tk.END, self._initialvalue)
-        entry.pack(pady=(0, 5), fill=tk.X)
-        entry.bind("<Return>", self.on_submit)
-        entry.bind("<KP_Enter>", self.on_submit)
-        entry.bind("<Escape>", self.on_cancel)
-
-        frame.pack(fill=tk.X, expand=True)
-        self._initial_focus = entry
-
-
-class AddHashesDialog(AppDialog):
-
-    resizable = (True, True)
-    minsize = (560, 360)
+class AddHashesDialog(QDialog):
     _AUTO_CLOSE_DELAY = 500
 
-    def __init__(self, parent: tk.Tk, add_item: Callable[[str, str], bool]) -> None:
-        super().__init__(parent, "Add Hashes")
+    def __init__(self, parent: QWidget, add_item: Callable[[str, str], bool]) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Add Hashes")
+        self.setMinimumSize(560, 360)
+        self.setSizeGripEnabled(True)
         self._add_item = add_item
-        self._status_var = tk.StringVar(value="")
-        self._text: tk.Text
+        self._build()
 
-    def create_body(self, master: tk.Misc) -> None:
-        frame = ttk.Frame(master, padding=12)
-        frame.pack(fill=tk.BOTH, expand=True)
+    def _build(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
 
-        ttk.Label(frame, text="Enter one or more hashes (MD5, SHA-1, or SHA-256).", font=("-size 11 -weight bold")).pack(anchor=tk.W)
-        ttk.Label(
-            frame,
-            text="Enter one hash per line. A single hash is supported too.",
-        ).pack(anchor=tk.W, pady=(2, 8))
+        title = QLabel("Enter one or more hashes (MD5, SHA-1, or SHA-256).")
+        font = title.font()
+        font.setBold(True)
+        font.setPointSize(font.pointSize() + 1)
+        title.setFont(font)
+        layout.addWidget(title)
 
-        self._text = tk.Text(frame, height=10, wrap=tk.WORD)
-        self._text.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(
-            frame,
-            text="Example: 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f",
-            foreground="#8f949b",
-        ).pack(anchor=tk.W, pady=(8, 0))
-        ttk.Label(frame, textvariable=self._status_var).pack(anchor=tk.W, pady=(6, 0))
-        self._initial_focus = self._text
+        layout.addWidget(QLabel("Enter one hash per line. A single hash is supported too."))
+        self._text = QPlainTextEdit()
+        layout.addWidget(self._text)
+        layout.addWidget(QLabel("Example: 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"))
 
-    def create_buttonbox(self, master: tk.Misc) -> None:
-        buttons = ttk.Frame(master, padding=(12, 0, 12, 12))
-        buttons.pack(fill=tk.X)
-        ttk.Button(buttons, text="Add", command=self._add_hashes, bootstyle="primary").pack(side=tk.RIGHT)
-        ttk.Button(buttons, text="Cancel", command=self._toplevel.destroy, bootstyle="secondary").pack(side=tk.RIGHT, padx=(0, 8))
+        self._status_lbl = QLabel("")
+        layout.addWidget(self._status_lbl)
+
+        btn_box = QDialogButtonBox()
+        add_btn = btn_box.addButton("Add", QDialogButtonBox.ButtonRole.AcceptRole)
+        add_btn.setObjectName("primaryButton")
+        btn_box.addButton(QDialogButtonBox.StandardButton.Cancel)
+        add_btn.clicked.connect(self._add_hashes)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
 
     def _add_hashes(self) -> None:
-        raw = self._text.get("1.0", tk.END).strip()
+        raw = self._text.toPlainText().strip()
         if not raw:
-            self._status_var.set("No hashes provided.")
+            self._status_lbl.setText("No hashes provided.")
             return
 
         tokens = [line.strip() for line in raw.splitlines() if line.strip()]
-        if not tokens:
-            self._status_var.set("No hashes provided.")
-            return
-
         added = 0
-        invalid = []
+        invalid: list[str] = []
         duplicates = 0
-        seen = set()
+        seen: set[str] = set()
+
         for token in tokens:
             value = token.lower()
             if value in seen:
@@ -150,294 +109,312 @@ class AddHashesDialog(AppDialog):
             parts.append(f"Skipped {len(invalid)} invalid.")
         if duplicates:
             parts.append(f"Ignored {duplicates} duplicate{'s' if duplicates != 1 else ''}.")
-        self._status_var.set(" ".join(parts))
+        self._status_lbl.setText(" ".join(parts))
         if added > 0:
-            self._toplevel.after(self._AUTO_CLOSE_DELAY, self._toplevel.destroy)
+            QTimer.singleShot(self._AUTO_CLOSE_DELAY, self.accept)
 
 
-class ReportSavedDialog(AppDialog):
-
+class ReportSavedDialog(QDialog):
     def __init__(
         self,
-        parent: tk.Tk,
+        parent: QWidget,
         output_path: str,
         open_path: Callable[[str], None],
         open_folder: Callable[[str], None],
     ) -> None:
-        super().__init__(parent, "Report Saved")
+        super().__init__(parent)
+        self.setWindowTitle("Report Saved")
+        self.setMinimumWidth(400)
         self._output_path = output_path
         self._open_path = open_path
         self._open_folder = open_folder
+        self._build()
 
-    def create_body(self, master: tk.Misc) -> None:
-        frame = ttk.Frame(master, padding=12)
-        frame.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(frame, text="Report saved successfully.").pack(anchor=tk.W)
-        ttk.Label(frame, text=self._output_path, wraplength=540).pack(anchor=tk.W, pady=(4, 10))
+    def _build(self) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(8)
 
-    def create_buttonbox(self, master: tk.Misc) -> None:
-        buttons = ttk.Frame(master, padding=(12, 0, 12, 12))
-        buttons.pack(fill=tk.X)
-        ttk.Button(buttons, text="Open Report", command=self._on_open_report, bootstyle="primary").pack(side=tk.LEFT)
-        ttk.Button(buttons, text="Open Folder", command=self._on_open_folder, bootstyle="secondary").pack(side=tk.LEFT, padx=8)
-        ttk.Button(buttons, text="Close", command=self._toplevel.destroy, bootstyle="secondary").pack(side=tk.RIGHT)
+        layout.addWidget(QLabel("Report saved successfully."))
+        path_lbl = QLabel(self._output_path)
+        path_lbl.setWordWrap(True)
+        path_lbl.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        layout.addWidget(path_lbl)
+
+        btn_box = QDialogButtonBox()
+        open_report_btn = btn_box.addButton("Open Report", QDialogButtonBox.ButtonRole.ActionRole)
+        open_report_btn.setObjectName("successButton")
+        open_folder_btn = btn_box.addButton("Open Folder", QDialogButtonBox.ButtonRole.ActionRole)
+        btn_box.addButton(QDialogButtonBox.StandardButton.Close)
+        open_report_btn.clicked.connect(self._on_open_report)
+        open_folder_btn.clicked.connect(self._on_open_folder)
+        btn_box.rejected.connect(self.accept)
+        layout.addWidget(btn_box)
 
     def _on_open_report(self) -> None:
         self._open_path(self._output_path)
-        self._toplevel.destroy()
+        self.accept()
 
     def _on_open_folder(self) -> None:
         self._open_folder(self._output_path)
-        self._toplevel.destroy()
+        self.accept()
 
 
-class GenerateReportDialog(AppDialog):
-
-    _PORTABLE_INVALID_CHARS = set('/\\:*?"<>|')
-
-    def __init__(self, parent: tk.Tk, default_dir: str) -> None:
-        super().__init__(parent, "Generate Report")
-        default_name = f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        self._default_dir = default_dir
-        self._name_var = tk.StringVar(value=default_name)
-        self._fmt_var = tk.StringVar(value="json")
-        self._folder_var = tk.StringVar(value=default_dir)
+class GenerateReportDialog(QDialog):
+    def __init__(self, parent: QWidget, default_dir: str) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Generate Report")
+        self.setMinimumWidth(440)
         self._result: ReportRequest | None = None
+        default_name = f"scan_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self._build(default_name, default_dir)
 
-    def create_body(self, master: tk.Misc) -> None:
-        frame = ttk.Frame(master, padding=12)
-        frame.pack(fill=tk.BOTH, expand=True)
+    def _build(self, default_name: str, default_dir: str) -> None:
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        form.setSpacing(8)
 
-        ttk.Label(frame, text="Report Name").grid(row=0, column=0, sticky=tk.W, pady=(0, 6))
-        name_entry = ttk.Entry(frame, textvariable=self._name_var, width=36)
-        name_entry.grid(row=0, column=1, columnspan=2, sticky=tk.EW, pady=(0, 6))
+        self._name_edit = QLineEdit(default_name)
+        self._name_edit.setValidator(QRegularExpressionValidator(QRegularExpression(r"[^/\\\\:*?\"<>|]+"), self))
+        form.addRow("Report Name:", self._name_edit)
 
-        ttk.Label(frame, text="Report Type").grid(row=1, column=0, sticky=tk.W, pady=(0, 6))
-        fmt_combo = ttk.Combobox(frame, textvariable=self._fmt_var, values=["json", "csv", "txt", "md"], state="readonly", width=10)
-        fmt_combo.grid(row=1, column=1, sticky=tk.W, pady=(0, 6))
+        self._fmt_combo = QComboBox()
+        self._fmt_combo.addItems(["json", "csv", "txt", "md"])
+        form.addRow("Format:", self._fmt_combo)
 
-        ttk.Label(frame, text="Folder").grid(row=2, column=0, sticky=tk.W)
-        folder_entry = ttk.Entry(frame, textvariable=self._folder_var, width=36)
-        folder_entry.grid(row=2, column=1, sticky=tk.EW)
-        ttk.Button(frame, text="Browse...", command=self._browse_folder, bootstyle="secondary").grid(row=2, column=2, padx=(6, 0))
+        row = QHBoxLayout()
+        self._dir_edit = QLineEdit(default_dir)
+        row.addWidget(self._dir_edit)
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self._browse_folder)
+        row.addWidget(browse_btn)
+        form.addRow("Folder:", row)
+        layout.addLayout(form)
 
-        frame.columnconfigure(1, weight=1)
-        self._initial_focus = name_entry
-
-    def create_buttonbox(self, master: tk.Misc) -> None:
-        buttons = ttk.Frame(master, padding=(12, 0, 12, 12))
-        buttons.pack(fill=tk.X)
-        ttk.Button(buttons, text="Generate", command=self._confirm, bootstyle="primary").pack(side=tk.RIGHT)
-        ttk.Button(buttons, text="Cancel", command=self._toplevel.destroy, bootstyle="secondary").pack(side=tk.RIGHT, padx=(0, 8))
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        create_btn = btn_box.button(QDialogButtonBox.StandardButton.Ok)
+        create_btn.setText("Create")
+        create_btn.setObjectName("primaryButton")
+        btn_box.accepted.connect(self._confirm)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
 
     def _browse_folder(self) -> None:
-        selected = filedialog.askdirectory(
-            parent=self._toplevel,
-            title="Select Report Folder",
-            initialdir=self._folder_var.get() or self._default_dir,
-        )
-        if selected:
-            self._folder_var.set(selected)
-
-    @staticmethod
-    def _is_portable_filename(name: str) -> bool:
-        if not name or name in {".", ".."}:
-            return False
-        if name[-1] in {" ", "."}:
-            return False
-        for ch in name:
-            if ch in GenerateReportDialog._PORTABLE_INVALID_CHARS or ord(ch) < 32:
-                return False
-        return True
+        chosen = QFileDialog.getExistingDirectory(self, "Select report folder", self._dir_edit.text())
+        if chosen:
+            self._dir_edit.setText(chosen)
 
     def _confirm(self) -> None:
-        name = self._name_var.get().strip()
-        folder = self._folder_var.get().strip()
-        fmt = self._fmt_var.get().strip().lower() or "json"
+        name = self._name_edit.text().strip()
         if not name:
-            Messagebox.show_error("Report name is required.", title="Invalid Name", parent=self._toplevel)
-            return
-        if not folder:
-            Messagebox.show_error("Select a folder for the report.", title="Invalid Folder", parent=self._toplevel)
+            QMessageBox.warning(self, "Invalid Name", "Enter a report name.")
             return
 
-        folder_path = Path(folder)
-        if not folder_path.is_dir():
-            Messagebox.show_error("Selected folder does not exist.", title="Invalid Folder", parent=self._toplevel)
-            return
+        folder_path = Path(self._dir_edit.text().strip() or Path.home())
+        folder_path.mkdir(parents=True, exist_ok=True)
+        fmt = self._fmt_combo.currentText().strip().lower()
+        output_path = str(folder_path / f"{name}.{fmt}")
+        self._result = ReportRequest(new_dir=str(folder_path), output_path=output_path, report_format=fmt)
+        self.accept()
 
-        safe_name = Path(name).stem if "." in name else name
-        safe_name = safe_name.strip()
-        if not self._is_portable_filename(safe_name):
-            Messagebox.show_error(
-                "Use a portable filename (no / \\ : * ? \" < > |, control chars, trailing space/period).",
-                title="Invalid Name",
-                parent=self._toplevel,
-            )
-            return
 
-        output_path = str(folder_path / f"{safe_name}.{fmt}")
-        self._result = ReportRequest(
-            new_dir=str(folder_path),
-            output_path=output_path,
-            report_format=fmt,
-        )
-        self._toplevel.destroy()
-
-class AdvancedDialog(AppDialog):
-
+class AdvancedDialog(QDialog):
     _MAX_WORKERS = 50
     _MAX_RPM = 500
     _MAX_UPLOAD_TIMEOUT = 7200
     _THEME_VALUES = (THEME_AUTO, THEME_DARK, THEME_LIGHT)
+    _LABEL_WIDTH = 150
+    _FIELD_WIDTH = 220
 
     def __init__(
         self,
-        parent: tk.Tk,
+        parent: QWidget,
         current_rpm: int,
         current_workers: int,
         current_upload_timeout: int,
         current_upload_mode: str,
         current_theme_mode: str,
     ) -> None:
-        super().__init__(parent, "Advanced Scan Settings")
-        theme_mode = current_theme_mode if current_theme_mode in self._THEME_VALUES else THEME_AUTO
-        self._current_rpm = current_rpm
-        self._current_workers = current_workers
-        self._current_upload_timeout = current_upload_timeout
-        self._rpm_var = tk.StringVar(value=str(current_rpm))
-        self._workers_var = tk.StringVar(value=str(current_workers))
-        self._upload_timeout_var = tk.StringVar(value=str(current_upload_timeout))
-        self._theme_var = tk.StringVar(value=theme_mode.title())
-        self._upload_enabled_var = tk.BooleanVar(value=current_upload_mode in (UPLOAD_MANUAL, UPLOAD_AUTO))
-        self._auto_upload_var = tk.BooleanVar(value=current_upload_mode == UPLOAD_AUTO)
+        super().__init__(parent)
+        self.setWindowTitle("Advanced Scan Settings")
+        self.setMinimumWidth(380)
+        self.setFixedWidth(460)
+        self.setSizeGripEnabled(False)
+        self._result: tuple[int, int, int, str, str] | None = None
+        self._build(current_rpm, current_workers, current_upload_timeout, current_upload_mode, current_theme_mode)
 
-    def create_body(self, master: tk.Misc) -> None:
-        body = ttk.Frame(master, padding=(20, 16, 20, 12))
-        body.pack(fill=tk.BOTH, expand=True)
-        body.columnconfigure(0, weight=1)
-        body.columnconfigure(1, weight=1)
+    def _build(
+        self,
+        current_rpm: int,
+        current_workers: int,
+        current_upload_timeout: int,
+        current_upload_mode: str,
+        current_theme_mode: str,
+    ) -> None:
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
 
-        ttk.Label(body, text="Theme:").grid(row=0, column=0, sticky=tk.W, pady=(0, 10))
-        theme_combo = ttk.Combobox(body, textvariable=self._theme_var, values=[v.title() for v in self._THEME_VALUES], state="readonly", width=12)
-        theme_combo.grid(row=0, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
+        layout.addWidget(self._section_label("Appearance"))
+        theme_form = QFormLayout()
+        theme_form.setSpacing(6)
+        theme_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        theme_form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        theme_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
+        self._theme_combo = QComboBox()
+        self._theme_combo.addItems([value.title() for value in self._THEME_VALUES])
+        self._theme_combo.setCurrentText(
+            current_theme_mode.title() if current_theme_mode in self._THEME_VALUES else THEME_AUTO.title()
+        )
+        self._theme_combo.setFixedWidth(self._FIELD_WIDTH)
+        theme_form.addRow(self._field_label("Theme:"), self._theme_combo)
+        layout.addLayout(theme_form)
 
-        ttk.Separator(body, orient=tk.HORIZONTAL).grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(0, 10))
+        layout.addWidget(self._section_label("Scan Performance"))
+        form = QFormLayout()
+        form.setSpacing(6)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
+        self._workers_spin = QSpinBox()
+        self._workers_spin.setRange(1, self._MAX_WORKERS)
+        self._workers_spin.setValue(current_workers)
+        self._workers_spin.setFixedWidth(self._FIELD_WIDTH)
+        form.addRow(self._field_label("Workers:"), self._workers_spin)
 
-        ttk.Label(body, text="Workers:").grid(row=2, column=0, sticky=tk.W, pady=(0, 10))
-        ttk.Spinbox(body, from_=1, to=self._MAX_WORKERS, textvariable=self._workers_var, width=6).grid(row=2, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
+        self._rpm_spin = QSpinBox()
+        self._rpm_spin.setRange(0, self._MAX_RPM)
+        self._rpm_spin.setValue(current_rpm)
+        self._rpm_spin.setSpecialValueText("Unlimited")
+        self._rpm_spin.setFixedWidth(self._FIELD_WIDTH)
+        form.addRow(self._field_label("Requests per minute:"), self._rpm_spin)
+        layout.addLayout(form)
 
-        ttk.Label(body, text="Req/min (0 = unlimited):").grid(row=3, column=0, sticky=tk.W, pady=(0, 10))
-        ttk.Spinbox(body, from_=0, to=self._MAX_RPM, textvariable=self._rpm_var, width=6).grid(row=3, column=1, sticky=tk.W, padx=(16, 0), pady=(0, 10))
+        layout.addWidget(self._section_label("Upload Behavior"))
+        upload_form = QFormLayout()
+        upload_form.setSpacing(6)
+        upload_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        upload_form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        upload_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.FieldsStayAtSizeHint)
 
-        ttk.Separator(body, orient=tk.HORIZONTAL).grid(row=4, column=0, columnspan=2, sticky=tk.EW, pady=(4, 10))
+        self._upload_mode_combo = QComboBox()
+        self._upload_mode_combo.addItem("Never upload", UPLOAD_NEVER)
+        self._upload_mode_combo.addItem("Manual upload", UPLOAD_MANUAL)
+        self._upload_mode_combo.addItem("Auto-upload undetected files", UPLOAD_AUTO)
+        current_upload_index = max(0, self._upload_mode_combo.findData(current_upload_mode))
+        self._upload_mode_combo.setCurrentIndex(current_upload_index)
+        self._upload_mode_combo.setFixedWidth(self._FIELD_WIDTH)
+        upload_form.addRow(self._field_label("Mode:"), self._upload_mode_combo)
 
-        ttk.Checkbutton(
-            body,
-            text="Enable upload to VirusTotal for undetected files",
-            variable=self._upload_enabled_var,
-        ).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
+        self._timeout_spin = QSpinBox()
+        self._timeout_spin.setRange(0, self._MAX_UPLOAD_TIMEOUT)
+        self._timeout_spin.setValue(current_upload_timeout)
+        self._timeout_spin.setSpecialValueText("None")
+        self._timeout_spin.setFixedWidth(self._FIELD_WIDTH)
+        self._timeout_label = self._field_label("Upload timeout:")
+        upload_form.addRow(self._timeout_label, self._timeout_spin)
+        hint = QLabel("Only used when uploads are allowed.")
+        hint.setObjectName("subtleText")
+        hint.setContentsMargins(2, 0, 0, 0)
+        upload_form.addRow(self._field_label(""), hint)
+        layout.addLayout(upload_form)
 
-        sub_frame = ttk.Frame(body)
-        sub_frame.grid(row=6, column=0, columnspan=2, sticky=tk.W, padx=(20, 0), pady=(2, 2))
+        self._upload_mode_combo.currentIndexChanged.connect(lambda _index: self._sync_upload_controls())
+        self._sync_upload_controls()
 
-        auto_chk = ttk.Checkbutton(sub_frame, text="Auto-upload all undetected items (uses extra API quota)", variable=self._auto_upload_var)
-        auto_chk.pack(anchor=tk.W)
+        layout.addSpacing(4)
 
-        timeout_frame = ttk.Frame(body)
-        timeout_frame.grid(row=7, column=0, columnspan=2, sticky=tk.W, padx=(20, 0), pady=(4, 2))
-        timeout_label = ttk.Label(timeout_frame, text="Upload timeout (0 = none):")
-        timeout_label.pack(side=tk.LEFT)
-        timeout_spinbox = ttk.Spinbox(timeout_frame, from_=0, to=self._MAX_UPLOAD_TIMEOUT, textvariable=self._upload_timeout_var, width=6)
-        timeout_spinbox.pack(side=tk.LEFT, padx=(12, 0))
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Apply | QDialogButtonBox.StandardButton.Cancel
+        )
+        apply_btn = btn_box.button(QDialogButtonBox.StandardButton.Apply)
+        apply_btn.setObjectName("primaryButton")
+        apply_btn.clicked.connect(self._apply)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
 
-        def toggle_sub(*_: object) -> None:
-            enabled = self._upload_enabled_var.get()
-            state = tk.NORMAL if enabled else tk.DISABLED
-            auto_chk.configure(state=state)
-            timeout_label.configure(foreground="" if enabled else "gray")
-            timeout_spinbox.configure(state=state)
-            if not enabled:
-                self._auto_upload_var.set(False)
+    @staticmethod
+    def _section_label(text: str) -> QLabel:
+        label = QLabel(text)
+        font = label.font()
+        font.setBold(True)
+        label.setFont(font)
+        label.setObjectName("sectionLabel")
+        label.setContentsMargins(0, 8, 0, 2)
+        return label
 
-        self._upload_enabled_var.trace_add("write", toggle_sub)
-        toggle_sub()
-        self._initial_focus = theme_combo
+    @classmethod
+    def _field_label(cls, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setFixedWidth(cls._LABEL_WIDTH)
+        return label
 
-    def create_buttonbox(self, master: tk.Misc) -> None:
-        ttk.Separator(master, orient=tk.HORIZONTAL).pack(fill=tk.X)
-        btns = ttk.Frame(master, padding=(12, 8))
-        btns.pack(fill=tk.X)
-        ttk.Button(btns, text="Cancel", command=self._toplevel.destroy, bootstyle="secondary").pack(side=tk.RIGHT)
-        ttk.Button(btns, text="Apply", command=self._apply, bootstyle="primary").pack(side=tk.RIGHT, padx=(0, 8))
+    def _sync_upload_controls(self) -> None:
+        enabled = self._upload_mode_combo.currentData() != UPLOAD_NEVER
+        self._timeout_label.setEnabled(enabled)
+        self._timeout_spin.setEnabled(enabled)
 
     def _apply(self) -> None:
-        try:
-            workers = max(1, int(self._workers_var.get()))
-        except ValueError:
-            workers = self._current_workers
-        try:
-            rpm = max(0, int(self._rpm_var.get()))
-        except ValueError:
-            rpm = self._current_rpm
-        try:
-            upload_timeout = max(0, int(self._upload_timeout_var.get()))
-        except ValueError:
-            upload_timeout = self._current_upload_timeout
-
-        if not self._upload_enabled_var.get():
-            mode = UPLOAD_NEVER
-        elif self._auto_upload_var.get():
-            mode = UPLOAD_AUTO
-        else:
-            mode = UPLOAD_MANUAL
-
-        selected_theme = self._theme_var.get().lower()
-        self._result = (rpm, workers, upload_timeout, mode, selected_theme)
-        self._toplevel.destroy()
+        mode = str(self._upload_mode_combo.currentData())
+        self._result = (
+            max(0, self._rpm_spin.value()),
+            max(1, self._workers_spin.value()),
+            max(0, self._timeout_spin.value()),
+            mode,
+            self._theme_combo.currentText().lower(),
+        )
+        self.accept()
 
 
-def show_add_hashes_dialog(parent: tk.Tk, add_item: Callable[[str, str], bool]) -> None:
-    AddHashesDialog(parent, add_item).show()
+def show_set_api_key_dialog(parent: QWidget, current_key: str | None) -> str | None:
+    dialog = QInputDialog(parent)
+    dialog.setWindowTitle("VirusTotal API Key")
+    dialog.setLabelText("Enter API key:")
+    dialog.setTextEchoMode(QLineEdit.EchoMode.Password)
+    dialog.setTextValue(current_key or "")
+    dialog.setMinimumWidth(380)
+    line_edit = dialog.findChild(QLineEdit)
+    if line_edit is not None:
+        line_edit.setValidator(QRegularExpressionValidator(QRegularExpression(r"[0-9A-Fa-f]{0,64}"), dialog))
+    if dialog.exec() != QDialog.DialogCode.Accepted:
+        return None
+    return dialog.textValue().strip()
 
 
-def show_generate_report_dialog(
-    parent: tk.Tk,
-    default_dir: str,
-) -> ReportRequest | None:
+def show_add_hashes_dialog(parent: QWidget, add_item: Callable[[str, str], bool]) -> None:
+    AddHashesDialog(parent, add_item).exec()
+
+
+def show_generate_report_dialog(parent: QWidget, default_dir: str) -> ReportRequest | None:
     dialog = GenerateReportDialog(parent, default_dir)
-    dialog.show()
+    dialog.exec()
     return dialog._result
 
 
 def show_report_saved_dialog(
-    parent: tk.Tk,
+    parent: QWidget,
     output_path: str,
     open_path: Callable[[str], None],
     open_folder: Callable[[str], None],
 ) -> None:
-    ReportSavedDialog(parent, output_path, open_path, open_folder).show()
-
-
-def show_set_api_key_dialog(parent: tk.Tk, current_key: str | None) -> str | None:
-    dialog = MaskedDialog(
-        prompt="Enter API key:",
-        title="VirusTotal API Key",
-        initialvalue=current_key or "",
-        parent=parent,
-    )
-    dialog.show()
-    return dialog._result
+    ReportSavedDialog(parent, output_path, open_path, open_folder).exec()
 
 
 def show_advanced_dialog(
-    parent: tk.Tk,
+    parent: QWidget,
     current_rpm: int,
     current_workers: int,
     current_upload_timeout: int,
     current_upload_mode: str = "never",
     current_theme_mode: str = "auto",
 ) -> tuple[int, int, int, str, str] | None:
-    dialog = AdvancedDialog(parent, current_rpm, current_workers, current_upload_timeout, current_upload_mode, current_theme_mode)
-    dialog.show()
+    dialog = AdvancedDialog(
+        parent,
+        current_rpm,
+        current_workers,
+        current_upload_timeout,
+        current_upload_mode,
+        current_theme_mode,
+    )
+    dialog.exec()
     return dialog._result
