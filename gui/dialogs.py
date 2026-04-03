@@ -43,26 +43,37 @@ class AddHashesDialog(QDialog):
     def __init__(self, parent: QWidget, add_item: Callable[[str, str], bool]) -> None:
         super().__init__(parent)
         self.setWindowTitle("Add Hashes")
-        self.setMinimumSize(560, 360)
+        self.setMinimumSize(600, 400)
         self.setSizeGripEnabled(True)
         self._add_item = add_item
         self._build()
 
     def _build(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setSpacing(8)
+        layout.setContentsMargins(24, 16, 24, 16)
+        layout.setSpacing(12)
 
-        title = QLabel("Enter one or more hashes (MD5, SHA-1, or SHA-256).")
+        title = QLabel("Add Hashes")
         font = title.font()
         font.setBold(True)
-        font.setPointSize(font.pointSize() + 1)
+        font.setPointSize(font.pointSize() + 2)
         title.setFont(font)
         layout.addWidget(title)
 
-        layout.addWidget(QLabel("Enter one hash per line. A single hash is supported too."))
+        helper = QLabel("Enter one hash per line. Supports MD5, SHA-1, and SHA-256.")
+        helper.setWordWrap(True)
+        layout.addWidget(helper)
+
         self._text = QPlainTextEdit()
+        self._text.setPlaceholderText("Enter or paste hashes, one per line")
+        self._text.setFocus()
         layout.addWidget(self._text)
-        layout.addWidget(QLabel("Example: 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f"))
+
+        example = QLabel("Example: 275a021bbfb6489e54d471899f7db9d1663fc695ec2fe2a2c4538aabf651fd0f")
+        example.setObjectName("subtleText")
+        example.setWordWrap(True)
+        example.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(example)
 
         self._status_lbl = QLabel("")
         layout.addWidget(self._status_lbl)
