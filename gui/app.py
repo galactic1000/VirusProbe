@@ -139,11 +139,6 @@ class VirusProbeGUI(QMainWindow):
             app.styleHints().colorSchemeChanged.connect(self._on_color_scheme_changed)  # type: ignore
         self.initialize_view()
 
-        screen = QApplication.primaryScreen()
-        if screen:
-            geometry = screen.availableGeometry()
-            self.move((geometry.width() - self.width()) // 2, (geometry.height() - self.height()) // 2)
-
         self.show()
 
     def initialize_view(self) -> None:
